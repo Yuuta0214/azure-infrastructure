@@ -1,27 +1,59 @@
 name: 'Azure Infrastructure Build'
 
-# mainブランチにコードが送信(Push)されたら起動する
+# 自動実行を完全に封印し、GitHub上の「Run workflow」ボタンを押した時だけ動くように設定
 on:
-  push:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  terraform:
-    name: 'Terraform Execution'
-    runs-on: ubuntu-latest # GitHub側のサーバーを使用するため、PCは汚れません
-
+  # ステップ1：テスト（見積もり）
+  terraform-plan:
+    name: '1. Terraform Plan (Test)'
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 接続テスト: Azureのアカウント情報を表示する
-    - name: Check Azure Connection
-      run: az account show
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ./my-project/terraform
+        run: terraform plan
+
+  # ステップ2：本番反映（Planが成功した後に実行）
+  terraform-apply:
+    name: '2. Terraform Apply (Deploy)'
+    needs: terraform-plan # Plan（テスト）が正常に終わった場合のみ次に進む
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./my-project/terraform
+        run: terraform apply -auto-approve
