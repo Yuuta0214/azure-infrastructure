@@ -1,6 +1,5 @@
 name: 'Azure Infrastructure Build'
 
-# 手動実行のみを受け付ける設定
 on:
   workflow_dispatch:
 
@@ -8,7 +7,6 @@ permissions:
   contents: read
 
 jobs:
-  # ステップ1：テスト（見積もり・シミュレーション）
   terraform-plan:
     name: '1. Terraform Plan (Test)'
     runs-on: ubuntu-latest
@@ -30,13 +28,15 @@ jobs:
 
       - name: Terraform Plan
         working-directory: ./my-project/terraform
+        # ここに env セクションを追加して、Secrets を Terraform に渡します
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: terraform plan
 
-  # ステップ2：本番反映（検証ブランチではスキップするように設定）
   terraform-apply:
     name: '2. Terraform Apply (Deploy)'
     needs: terraform-plan
-    # 【安全装置】このif文により、featureブランチではこのジョブを実行させません
     if: github.ref == 'refs/heads/main' 
     runs-on: ubuntu-latest
     
@@ -58,4 +58,8 @@ jobs:
 
       - name: Terraform Apply
         working-directory: ./my-project/terraform
+        # Apply 側にも同様に env セクションを追加します
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: terraform apply -auto-approve
