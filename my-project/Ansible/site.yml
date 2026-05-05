@@ -1,0 +1,26 @@
+---
+- name: Setup Web/App/DB Containers
+  hosts: docker_hosts
+  become: yes  # sudo権限で実行
+  tasks:
+    - name: Create app directory
+      file:
+        path: "/home/{{ ansible_user }}/app"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    - name: Deploy docker-compose.yml
+      template:
+        src: docker-compose.yml.j2
+        dest: "/home/{{ ansible_user }}/app/docker-compose.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+
+    - name: Start containers with Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "/home/{{ ansible_user }}/app"
+        state: present
+        wait: yes

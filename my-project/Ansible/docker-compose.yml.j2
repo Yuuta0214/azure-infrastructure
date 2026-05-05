@@ -1,0 +1,29 @@
+services:
+  # 1. DB層
+  db:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password123
+      MYSQL_DATABASE: myapp_db
+    volumes:
+      - db_data:/var/lib/mysql
+
+  # 2. App層
+  app:
+    image: nginx:latest # 疎通確認用
+    restart: always
+    depends_on:
+      - db
+
+  # 3. Web層
+  web:
+    image: nginx:latest
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+volumes:
+  db_data:
