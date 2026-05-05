@@ -36,7 +36,7 @@ jobs:
   terraform-apply:
     name: '2. Terraform Apply & Ansible Deploy'
     needs: terraform-plan
-    if: github.ref == 'refs/heads/main' 
+    # ↓ この行を削除することで、featureブランチでも Ansible まで実行されます
     runs-on: ubuntu-latest
     
     steps:
@@ -67,19 +67,15 @@ jobs:
       - name: Sleep for 60 seconds
         run: sleep 60
 
-      # TerraformのOutputからIPアドレスを取得してAnsibleに渡す（自動化のポイント）
+      # TerraformのOutputからIPアドレスを取得してAnsibleに渡す
       - name: Run Ansible Playbook
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          # 実行時にSecretsからパスワードを注入
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
         run: |
-          # Terraformディレクトリへ一時的に戻り、IPを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # 取得したIPを使ってPlaybookを実行
-          # inventory内のIPアドレスを動的に上書き、または直接指定
           ansible-playbook -i inventory.ini site.yml \
             -e "ansible_host=$VM_IP" \
             -e "ansible_password=$ANSIBLE_PASSWORD"
