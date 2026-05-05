@@ -1,15 +1,15 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手動で「Run workflow」ボタンを押した時のみ実行
 
 permissions:
   contents: read
 
 jobs:
-  # 1. 検証ジョブ：常に検証用（test）の設定を使用し、本番には絶対に触れない
+  # --- 1. 検証ジョブ：実行ブランチに応じた Plan を表示して一旦停止 ---
   terraform-plan:
-    name: '1. Validation & Test Plan'
+    name: '1. Validation & Plan'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,20 +35,31 @@ jobs:
         working-directory: ./my-project/Ansible
         run: ansible-playbook -i inventory.ini site.yml --syntax-check
 
-      - name: Terraform Plan (Test Env)
+      - name: Terraform Plan
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-        # 検証用の設定ファイルを明示して実行
-        run: terraform plan -var-file=env-test.tfvars
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "Target Environment: Production"
+            terraform plan -var-file=env-prod.tfvars
+          else
+            echo "Target Environment: Test"
+            terraform plan -var-file=env-test.tfvars
+          fi
 
-  # 2. 本番デプロイジョブ：mainブランチのみ実行可能・本番用（prod）の設定を使用
+  # --- 2. デプロイジョブ：承認（Approve）を待機し、実機検証まで完走 ---
   terraform-apply:
-    name: '2. Production Apply & Deploy'
+    name: '2. Apply & Ansible Deploy'
     needs: terraform-plan
-    if: github.ref == 'refs/heads/main'
+    # main または feature/azure-setup ブランチの場合のみ実行
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
+    
+    # 【手動承認用】GitHub Settings > Environments で作成した環境名を動的に指定
+    environment: 
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'test' }}
     
     steps:
       - name: Checkout
@@ -66,29 +77,44 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      - name: Terraform Apply (Prod Env)
+      - name: Terraform Apply
         id: apply
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-        # 本番用の設定ファイルを明示して実行
-        run: terraform apply -var-file=env-prod.tfvars -auto-approve
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "Applying to PRODUCTION environment..."
+            terraform apply -var-file=env-prod.tfvars -auto-approve
+          else
+            echo "Applying to TEST environment..."
+            terraform apply -var-file=env-test.tfvars -auto-approve
+          fi
 
-      - name: Sleep for 60 seconds
+      - name: Sleep for 60 seconds (Wait for VM Boot)
         run: sleep 60
 
-      - name: Run Ansible Playbook
+      - name: Run Ansible Playbook (Full Validation)
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
-          # Terraform 変数を参照するためにパスワード等も渡しておく
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 【修正】output取得時にも確実に本番用の.tfvarsを指定する
-          VM_IP=$(cd ../terraform && terraform output -raw -var-file=env-prod.tfvars alb_public_ip)
+          # 実行ブランチに合わせた変数を動的に取得
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TARGET_VARS="env-prod.tfvars"
+          else
+            TARGET_VARS="env-test.tfvars"
+          fi
+          
+          # Terraform Outputから接続情報を抽出
+          VM_IP=$(cd ../terraform && terraform output -raw -var-file=$TARGET_VARS alb_public_ip)
+          
+          # 実機に対してAnsibleを実行
           ansible-playbook -i inventory.ini site.yml \
-            -e "ansible_host=$VM_IP" \
+            -e "target_ip=$VM_IP" \
+            -e "admin_username=$TF_VAR_admin_username" \
             -e "ansible_password=$ANSIBLE_PASSWORD"
