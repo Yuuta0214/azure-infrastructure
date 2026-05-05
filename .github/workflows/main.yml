@@ -7,9 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  # 1. 検証ジョブ（どのブランチでも実行され、実機には一切触れない）
+  # 1. 検証ジョブ：常に検証用（test）の設定を使用し、本番には絶対に触れない
   terraform-plan:
-    name: '1. Validation & Plan (No Deploy)'
+    name: '1. Validation & Test Plan'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,28 +27,26 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 【重要】論理チェック（実機に触れず、構文やエスケープ、変数をチェック）
       - name: Terraform Validate
         working-directory: ./my-project/terraform
         run: terraform validate
 
-      # 【重要】Ansible構文チェック（実機に触れず、Playbookの書き方をチェック）
       - name: Ansible Syntax Check
         working-directory: ./my-project/Ansible
         run: ansible-playbook -i inventory.ini site.yml --syntax-check
 
-      - name: Terraform Plan
+      - name: Terraform Plan (Test Env)
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-        run: terraform plan
+        # 検証用の設定ファイルを明示して実行
+        run: terraform plan -var-file=env-test.tfvars
 
-  # 2. 本番デプロイジョブ（mainブランチのみ実行可能・実機を操作する）
+  # 2. 本番デプロイジョブ：mainブランチのみ実行可能・本番用（prod）の設定を使用
   terraform-apply:
-    name: '2. Terraform Apply & Ansible Deploy'
+    name: '2. Production Apply & Deploy'
     needs: terraform-plan
-    # 【絶対防御】mainブランチ以外ではこのジョブは実行されません
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     
@@ -68,13 +66,14 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Terraform Apply (Prod Env)
         id: apply
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-        run: terraform apply -auto-approve
+        # 本番用の設定ファイルを明示して実行
+        run: terraform apply -var-file=env-prod.tfvars -auto-approve
 
       - name: Sleep for 60 seconds
         run: sleep 60
@@ -84,8 +83,12 @@ jobs:
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
+          # Terraform 変数を参照するためにパスワード等も渡しておく
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
+          # 【修正】output取得時にも確実に本番用の.tfvarsを指定する
+          VM_IP=$(cd ../terraform && terraform output -raw -var-file=env-prod.tfvars alb_public_ip)
           ansible-playbook -i inventory.ini site.yml \
             -e "ansible_host=$VM_IP" \
             -e "ansible_password=$ANSIBLE_PASSWORD"

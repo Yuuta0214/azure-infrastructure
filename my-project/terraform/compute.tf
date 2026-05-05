@@ -1,8 +1,9 @@
-# 18. ネットワークインターフェース（NIC）の作成
+# 11. ネットワークインターフェース（NIC）の作成
 # VMがネットワークと通信するための「接点」
 # ==========================================
 resource "azurerm_network_interface" "nic" {
-  name                = "nic-docker-vm"
+  # 修正：変数を使用して環境ごとに名前を分ける
+  name                = "nic-${var.project_name}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
@@ -12,8 +13,9 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
   }
 }
+# ==========================================
 
-# 19. NICとALBバックエンドプールの紐付け
+# 12. NICとALBバックエンドプールの紐付け
 # ALBに届いたパケットをこのVMのNICに流すための設定
 # ==========================================
 resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_assoc" {
@@ -21,15 +23,20 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_as
   ip_configuration_name   = "internal"
   backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
 }
+# ==========================================
 
-# 20. Linux 仮想マシン（VM）の作成
+# 13. Linux 仮想マシン（VM）の作成
 # 外部ファイル scripts/bootstrap.sh を読み込んで初期セットアップを自動化
 # ==========================================
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                            = "vm-docker-host"
+  # 修正：変数を使用して環境ごとに名前を分ける
+  name                            = "vm-${var.project_name}"
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = azurerm_resource_group.rg.location
-  size                            = "Standard_B2s"
+  
+  # 【重要修正】サイズを変数化。これで在庫不足エラー(409)に柔軟に対応できます
+  size                            = var.vm_size
+  
   admin_username                  = var.admin_username
   admin_password                  = var.admin_password
   disable_password_authentication = false
@@ -51,11 +58,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   # 【修正ポイント】templatefile関数を使用して外部スクリプトを読み込み
-  # 1. scripts/bootstrap.sh を参照
-  # 2. 変数 (hostname, admin_username) をスクリプト内に注入
-  # 3. Azureが解釈できる base64 形式に変換
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
-    hostname       = "vm-docker-host"
+    # 修正：ホスト名も環境に応じて変わるように変更
+    hostname       = "vm-${var.project_name}"
     admin_username = var.admin_username
   }))
 }

@@ -2,25 +2,49 @@
 - name: Setup Web/App/DB Containers
   hosts: docker_hosts
   become: yes  # sudo権限で実行
+  
   tasks:
+    # 1. ユーザーのホームディレクトリを取得（admin_usernameが変わっても対応可能にする）
+    - name: Get remote user home directory
+      shell: "expand ~{{ ansible_user }}"
+      register: user_home
+      changed_when: false
+
+    # 2. アプリ用ディレクトリの作成
     - name: Create app directory
       file:
-        path: "/home/{{ ansible_user }}/app"
+        path: "{{ user_home.stdout }}/app"
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0755'
 
+    # 3. Docker Composeファイルの配置（Jinja2テンプレート）
     - name: Deploy docker-compose.yml
       template:
         src: docker-compose.yml.j2
-        dest: "/home/{{ ansible_user }}/app/docker-compose.yml"
+        dest: "{{ user_home.stdout }}/app/docker-compose.yml"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
 
+    # 4. コンテナの起動
+    # docker-compose-v2モジュールが失敗する場合に備え、より確実なコマンド実行方式を採用
     - name: Start containers with Docker Compose
-      community.docker.docker_compose_v2:
-        project_src: "/home/{{ ansible_user }}/app"
-        state: present
-        wait: yes
+      command:
+        cmd: "docker compose up -d"
+        chdir: "{{ user_home.stdout }}/app"
+      register: compose_output
+      changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout"
+
+    # 5. 疎通確認（任意：起動後のステータス確認）
+    - name: Check container status
+      command:
+        cmd: "docker compose ps"
+        chdir: "{{ user_home.stdout }}/app"
+      register: ps_output
+      changed_when: false
+
+    - name: Show container status
+      debug:
+        var: ps_output.stdout_lines

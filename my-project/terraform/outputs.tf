@@ -1,4 +1,4 @@
-# 21. 実行結果の表示（Output）
+# 14. 実行結果の表示（Output）
 # デプロイ完了後、アクセス先のIPアドレスや情報をターミナルに表示
 # ==========================================
 
@@ -16,6 +16,7 @@ output "vm_private_ip" {
 
 # リソースグループ名（Azure CLIでの確認用）
 output "resource_group_name" {
-  value = azurerm_resource_group.rg.name
+  description = "作成されたリソースグループ名です。"
+  value       = azurerm_resource_group.rg.name
 }
 # ==========================================
