@@ -12,11 +12,13 @@ export DEBIAN_FRONTEND=noninteractive
 # 追記モード(-a)で /var/log/user-data.log に全ての出力を記録
 exec > >(tee -a /var/log/user-data.log | logger -t user-data) 2>&1
 
-echo "*** [START] Bootstrap Process: $(date) ***"
+# ★修正：$ を $$ に変更（Terraformのエスケープ）
+echo "*** [START] Bootstrap Process: $$(date) ***"
 
 # --- 2. システム基本設定 ---
 # 変数未定義時の安全策を講じてホスト名を設定
-if [ -n "${hostname:-}" ]; then
+# ★修正：${hostname:-} は Terraform 側で展開されるためそのまま（または安全のため :- を削除）
+if [ -n "${hostname}" ]; then
     hostnamectl set-hostname "${hostname}"
 fi
 
@@ -46,15 +48,16 @@ install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+# ★修正：$(...) を $$(...) に変更
+echo "deb [arch=$$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+  $$(. /etc/os-release && echo "$$VERSION_CODENAME") stable" | \
   tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 apt-get update -y
 apt-get install $INSTALL_OPTS docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # ユーザー権限の追加（sudoなしでdockerコマンドを実行可能にする）
-if [ -n "${admin_username:-}" ]; then
+if [ -n "${admin_username}" ]; then
     usermod -aG docker "${admin_username}"
 fi
 
@@ -74,7 +77,7 @@ fi
 
 # --- 7. 管理ユーザー (${admin_username}) の権限設定 ---
 # visudo による構文チェックを行い、設定ミスによる締め出しを防止
-if [ -n "${admin_username:-}" ]; then
+if [ -n "${admin_username}" ]; then
     SUDOERS_FILE="/etc/sudoers.d/${admin_username}"
     echo "${admin_username} ALL=(ALL) NOPASSWD:ALL" > "$SUDOERS_FILE"
     chmod 440 "$SUDOERS_FILE"
@@ -82,4 +85,5 @@ if [ -n "${admin_username:-}" ]; then
 fi
 
 # --- 8. 完了報告 ---
-echo "*** [SUCCESS] Bootstrap Process Completed: $(date) ***"
+# ★修正：$ を $$ に変更
+echo "*** [SUCCESS] Bootstrap Process Completed: $$(date) ***"
