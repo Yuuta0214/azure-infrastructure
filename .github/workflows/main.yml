@@ -22,12 +22,14 @@ jobs:
 
       - name: バックエンド用ストレージの存在確認と作成
         run: |
-          STORAGE_EXISTS=$(az storage account list --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+          # アカウント一覧から名前が一致するものを取得（サブスクリプションを明示して検索範囲を固定）
+          STORAGE_EXISTS=$(az storage account list --subscription "0f273017-b259-421d-894c-ae7906f901c8" --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+
           if [ -z "$STORAGE_EXISTS" ]; then
             echo "ストレージアカウントが見つかりません。新規作成を開始します..."
-            az group create --name rg-storage-state --location japanwest
-            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
-            az storage container create --name tfstate --account-name sttfstate20260506yuta
+            az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+            az storage container create --name tfstate --account-name sttfstate20260506yuta --subscription "0f273017-b259-421d-894c-ae7906f901c8"
           else
             echo "ストレージアカウントは既に存在します。作成処理をスキップします。"
           fi
