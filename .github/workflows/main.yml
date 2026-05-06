@@ -20,11 +20,17 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Create Backend Storage (One-time)
+      # 【修正】存在確認を追加し、すでに作成済みなら即時スキップするように変更
+      - name: Create Backend Storage (If not exists)
         run: |
-          az group create --name rg-storage-state --location japanwest
-          az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS || echo "Exists"
-          az storage container create --name tfstate --account-name sttfstate20260506yuta || echo "Exists"
+          if ! az storage account show --name sttfstate20260506yuta --resource-group rg-storage-state > /dev/null 2>&1; then
+            echo "Storage account not found. Creating..."
+            az group create --name rg-storage-state --location japanwest
+            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
+            az storage container create --name tfstate --account-name sttfstate20260506yuta
+          else
+            echo "Storage account already exists. Skipping creation to save time."
+          fi
 
       - name: Force Break State Lease
         run: |
@@ -113,7 +119,6 @@ jobs:
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          # エラーの原因となっていた callback plugin 指定を削除
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
