@@ -34,7 +34,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = azurerm_resource_group.rg.location
   
-  # 【重要修正】サイズを変数化。これで在庫不足エラー(409)に柔軟に対応できます
+  # 【重要修正】サイズを変数化。env-test.tfvars 等で Standard_B2s に変更して対応します
   size                            = var.vm_size
   
   admin_username                  = var.admin_username

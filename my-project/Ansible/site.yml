@@ -2,11 +2,17 @@
 - name: Setup Web/App/DB Containers
   hosts: docker_hosts
   become: yes  # sudo権限で実行
-  
+
+  # 【追加】GitHub Actions 等から渡される変数のデフォルト値を定義
+  vars:
+    mysql_root_password: "{{ mysql_root_password | default('password123') }}"
+    mysql_db_name: "{{ mysql_db_name | default('myapp_db') }}"
+
   tasks:
-    # 1. ユーザーのホームディレクトリを取得（admin_usernameが変わっても対応可能にする）
+    # 1. ユーザーのホームディレクトリを取得
+    # admin_username が変わっても動的にパスを特定します
     - name: Get remote user home directory
-      shell: "expand ~{{ ansible_user }}"
+      shell: "getent passwd {{ ansible_user }} | cut -d: -f6"
       register: user_home
       changed_when: false
 
@@ -20,6 +26,7 @@
         mode: '0755'
 
     # 3. Docker Composeファイルの配置（Jinja2テンプレート）
+    # ここで mysql_root_password 等が注入されます
     - name: Deploy docker-compose.yml
       template:
         src: docker-compose.yml.j2
@@ -29,15 +36,15 @@
         mode: '0644'
 
     # 4. コンテナの起動
-    # docker-compose-v2モジュールが失敗する場合に備え、より確実なコマンド実行方式を採用
+    # Debian 12 (Docker公式リポジトリ版) は 'docker compose' (v2) コマンドを使用します
     - name: Start containers with Docker Compose
       command:
         cmd: "docker compose up -d"
         chdir: "{{ user_home.stdout }}/app"
       register: compose_output
-      changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout"
+      changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout or 'Running' in compose_output.stdout"
 
-    # 5. 疎通確認（任意：起動後のステータス確認）
+    # 5. 疎通確認
     - name: Check container status
       command:
         cmd: "docker compose ps"
@@ -47,4 +54,4 @@
 
     - name: Show container status
       debug:
-        var: ps_output.stdout_lines
+        msg: "{{ ps_output.stdout_lines }}"

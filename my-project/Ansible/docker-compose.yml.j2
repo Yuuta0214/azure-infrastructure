@@ -7,9 +7,9 @@ services:
     image: mysql:8.0
     restart: always
     environment:
-      # 実際には Ansible から変数を注入できるようにしておくと安全です
-      MYSQL_ROOT_PASSWORD: password123
-      MYSQL_DATABASE: myapp_db
+      # 【修正】Ansible 変数から注入。デフォルト値を設定しつつ秘匿性を確保します
+      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password | default('password123') }}"
+      MYSQL_DATABASE: "{{ mysql_db_name | default('myapp_db') }}"
     volumes:
       - db_data:/var/lib/mysql
     networks:
@@ -37,7 +37,6 @@ services:
       - frontend-nw
 
 # --- ネットワーク定義 ---
-# 推奨設定：層ごとに分離することで、DBが直接外部と通信するのを防ぎます
 networks:
   frontend-nw:
     driver: bridge
