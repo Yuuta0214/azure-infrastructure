@@ -69,7 +69,10 @@ jobs:
 
       - name: Ansible 構文チェック
         working-directory: ./my-project/Ansible
-        run: ansible-playbook -i inventory.ini site.yml --syntax-check
+        run: |
+          # 構文チェック時もプロジェクト内の古い ansible.cfg を無視させる
+          export ANSIBLE_CONFIG=/dev/null
+          ansible-playbook -i inventory.ini site.yml --syntax-check
 
       - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
@@ -120,7 +123,8 @@ jobs:
       - name: Ansible プレイブックの実行
         working-directory: ./my-project/Ansible
         env:
-          # エラーの原因となる ANSIBLE_STDOUT_CALLBACK は設定せず、デフォルトの挙動に任せます
+          # プロジェクト内の古い ansible.cfg を読み込ませず、最新仕様で動作させる
+          ANSIBLE_CONFIG: "/dev/null"
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
