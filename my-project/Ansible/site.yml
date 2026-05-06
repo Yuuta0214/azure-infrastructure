@@ -1,6 +1,6 @@
 ---
 - name: Setup Web/App/DB Containers
-  hosts: docker_hosts
+  hosts: vm_host
   become: yes
 
   vars: {}
@@ -11,18 +11,34 @@
       register: user_home
       changed_when: false
 
-    # --- 修正ポイント ---
-    # ignore_errors: yes を加えることで、Dockerインストール中の「コマンドが見つからない」
-    # という状態を即座にエラー終了させず、untilによるリトライを継続させます。
-    - name: Wait for Docker to be installed by bootstrap.sh
-      command: docker --version
-      register: docker_check
-      until: docker_check.rc == 0
-      retries: 30       # クラウドの負荷を考慮し、最大7.5分まで延長
-      delay: 15
-      changed_when: false
-      ignore_errors: yes
+    # --- Docker インストールセクション ---
+    # bootstrap.sh でリポジトリ設定は済んでいるため、ここでは apt で確実にインストールします
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        force_apt_get: yes
 
+    - name: Install Docker Engine and Plugins
+      apt:
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      register: docker_install
+      until: docker_install is success
+      retries: 5
+      delay: 10
+
+    - name: Ensure Docker service is started and enabled
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    # --- アプリケーションデプロイセクション ---
     - name: Create app directory
       file:
         path: "{{ user_home.stdout }}/app"
@@ -38,8 +54,6 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
-      # 以前問題になった変数の二重定義を避け、
-      # テンプレート側の default() 設定に解決を任せます
 
     - name: Start containers with Docker Compose
       command:

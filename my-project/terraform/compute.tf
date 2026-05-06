@@ -20,13 +20,12 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_as
   backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
 }
 
-# 【追加】12-1. NICとALB NATルールの紐付け（SSH接続用）
-# これがないと、ALBに届いたSSHパケットがVMのNICまで転送されません
+# 12-1. NICとALB NATルールの紐付け（SSH接続用）
 # ==========================================
 resource "azurerm_network_interface_nat_rule_association" "nic_nat_assoc" {
   network_interface_id  = azurerm_network_interface.nic.id
   ip_configuration_name = "internal"
-  nat_rule_id           = azurerm_lb_nat_rule.ssh.id # network.tfで定義したNATルールのID
+  nat_rule_id           = azurerm_lb_nat_rule.ssh.id
 }
 
 # 13. Linux 仮想マシン（VM）の作成
@@ -56,8 +55,12 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
+  # 【修正ポイント】bootstrap.sh は最小限の初期設定のみに留める
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${var.project_name}"
     admin_username = var.admin_username
   }))
+
+  # 冪等性を担保するため、再起動などで設定が飛ばないよう考慮
+  provision_vm_agent = true
 }
