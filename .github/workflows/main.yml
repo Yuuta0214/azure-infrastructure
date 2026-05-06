@@ -122,20 +122,19 @@ jobs:
             terraform apply -var-file=env-test.tfvars -auto-approve
           fi
 
-      - name: Sleep for 60 seconds
-        run: sleep 60
+      # 【今回の修正箇所】VMの起動とSSHサービスの立ち上がりを待つため、120秒へ延長
+      - name: Sleep for 120 seconds
+        run: sleep 120
 
       - name: Run Ansible Playbook
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          # 最新Ansibleでのエラー回避用：標準のコールバックを使用
           ANSIBLE_STDOUT_CALLBACK: "default"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # VMのIPアドレスを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
           ansible-playbook -i inventory.ini site.yml \
