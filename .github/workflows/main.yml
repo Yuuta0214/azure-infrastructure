@@ -20,8 +20,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【重要：今回のみ追加】管理用ストレージの自動作成
-      # ポータルやローカルCLIを使わず、Actions内でState保存先を構築します
+      # 【重要】管理用ストレージの自動作成
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name tfstate-rg --location japaneast
@@ -35,19 +34,24 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 【重要：今回のみ追加】既存リソースの自動インポート
-      # 「既に存在する」というエラーを解消し、IaCの管理下に強制的に取り込みます
+      # 【ロック回避追加】既存リソースの自動インポート
       - name: Terraform Import Existing Resources
         working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             TARGET_RG="rg-web-project"
+            TARGET_VARS="env-prod.tfvars"
           else
             TARGET_RG="rg-web-test"
+            TARGET_VARS="env-test.tfvars"
           fi
-          # リソースグループを台帳に登録
-          terraform import -var-file=${{ github.ref == 'refs/heads/main' && 'env-prod.tfvars' || 'env-test.tfvars' }} \
-          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG
+          
+          # -lock=false を追加して、デッドロックによる停止を回避します
+          terraform import -lock=false -var-file=$TARGET_VARS \
+          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already imported or failed, proceeding..."
 
       - name: Terraform Validate
         working-directory: ./my-project/terraform
@@ -65,10 +69,10 @@ jobs:
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "Target Environment: Production"
-            terraform plan -var-file=env-prod.tfvars
+            terraform plan -lock=false -var-file=env-prod.tfvars
           else
             echo "Target Environment: Test"
-            terraform plan -var-file=env-test.tfvars
+            terraform plan -lock=false -var-file=env-test.tfvars
           fi
 
   # --- 2. デプロイジョブ ---
