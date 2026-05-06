@@ -137,12 +137,9 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            TARGET_VARS="env-prod.tfvars"
-          else
-            TARGET_VARS="env-test.tfvars"
-          fi
-          VM_IP=$(cd ../terraform && terraform output -raw -var-file=$TARGET_VARS alb_public_ip)
+          # 【修正箇所】terraform output に -var-file フラグは不要なため削除
+          VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
+          
           ansible-playbook -i inventory.ini site.yml \
             -e "target_ip=$VM_IP" \
             -e "admin_username=$TF_VAR_admin_username" \
