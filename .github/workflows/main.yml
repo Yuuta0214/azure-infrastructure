@@ -9,44 +9,46 @@ permissions:
 jobs:
   # --- 1. 検証ジョブ ---
   terraform-plan:
-    name: '1. Validation & Plan'
+    name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: コードのチェックアウト
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure ログイン
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【修正】存在確認を追加し、すでに作成済みなら即時スキップするように変更
-      - name: Create Backend Storage (If not exists)
+      - name: バックエンド用ストレージの存在確認と作成
         run: |
-          if ! az storage account show --name sttfstate20260506yuta --resource-group rg-storage-state > /dev/null 2>&1; then
-            echo "Storage account not found. Creating..."
+          # アカウント一覧から名前が一致するものを取得
+          STORAGE_EXISTS=$(az storage account list --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+
+          if [ -z "$STORAGE_EXISTS" ]; then
+            echo "ストレージアカウントが見つかりません。新規作成を開始します..."
             az group create --name rg-storage-state --location japanwest
             az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
             az storage container create --name tfstate --account-name sttfstate20260506yuta
           else
-            echo "Storage account already exists. Skipping creation to save time."
+            echo "ストレージアカウントは既に存在します。作成処理をスキップします。"
           fi
 
-      - name: Force Break State Lease
+      - name: Terraform State のリース解除
         run: |
           az storage blob lease break \
             --blob-name terraform.tfstate \
             --container-name tfstate \
-            --account-name sttfstate20260506yuta || echo "No lease to break"
+            --account-name sttfstate20260506yuta || echo "解除すべきリースはありません"
 
-      - name: HashiCorp - Setup Terraform
+      - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init
+      - name: Terraform 初期化
         working-directory: ./my-project/terraform
         run: terraform init
 
-      - name: Terraform Import Existing Resources
+      - name: 既存リソースグループのインポート
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
@@ -59,17 +61,17 @@ jobs:
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC
           terraform import -lock=false -var-file=$TARGET_VARS \
-          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already managed"
+          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "既に管理下です"
 
-      - name: Terraform Validate
+      - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
         run: terraform validate
 
-      - name: Ansible Syntax Check
+      - name: Ansible 構文チェック
         working-directory: ./my-project/Ansible
         run: ansible-playbook -i inventory.ini site.yml --syntax-check
 
-      - name: Terraform Plan
+      - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
@@ -80,7 +82,7 @@ jobs:
 
   # --- 2. デプロイジョブ ---
   terraform-apply:
-    name: '2. Apply & Ansible Deploy'
+    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
     needs: terraform-plan
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
@@ -88,22 +90,22 @@ jobs:
       name: ${{ github.ref == 'refs/heads/main' && 'production' || 'test' }}
     
     steps:
-      - name: Checkout
+      - name: コードのチェックアウト
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure ログイン
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: HashiCorp - Setup Terraform
+      - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init
+      - name: Terraform 初期化
         working-directory: ./my-project/terraform
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Terraform リソース適用
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
@@ -112,10 +114,10 @@ jobs:
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform apply -var-file=$VAR_FILE -auto-approve
 
-      - name: Quick wait for SSH port
+      - name: SSH ポート開放待ち
         run: sleep 20
 
-      - name: Run Ansible Playbook
+      - name: Ansible プレイブックの実行
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
