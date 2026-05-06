@@ -20,20 +20,20 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【重要】管理用ストレージの自動作成（存在する場合は継続）
+      # 【重要】管理用ストレージの自動作成
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name tfstate-rg --location japaneast
-          az storage account create --name sttfstate20260506yuta --resource-group tfstate-rg --location japaneast --sku Standard_LRS || echo "Storage account already exists."
-          az storage container create --name tfstate --account-name sttfstate20260506yuta || echo "Container already exists."
+          az storage account create --name sttfstate20260506yuta --resource-group tfstate-rg --location japaneast --sku Standard_LRS || echo "Exists"
+          az storage container create --name tfstate --account-name sttfstate20260506yuta || echo "Exists"
 
-      # 【412エラー対策】残っているリースのロックを強制的に解除
+      # 【412エラー対策】リースのロックを強制的に解除
       - name: Force Break State Lease
         run: |
           az storage blob lease break \
             --blob-name terraform.tfstate \
             --container-name tfstate \
-            --account-name sttfstate20260506yuta || echo "No active lease to break, proceeding..."
+            --account-name sttfstate20260506yuta || echo "No lease"
 
       - name: HashiCorp - Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -42,7 +42,7 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 【ロック回避追加】既存リソースの自動インポート
+      # 【修正：インポート失敗対策】対象が存在しない場合は作成してからインポート
       - name: Terraform Import Existing Resources
         working-directory: ./my-project/terraform
         env:
@@ -57,9 +57,12 @@ jobs:
             TARGET_VARS="env-test.tfvars"
           fi
           
-          # -lock=false を追加して、デッドロックによる停止を回避
+          # 1. まずAzure上にリソースグループを確実に作成する（既にあれば何もしない）
+          az group create --name $TARGET_RG --location japaneast
+          
+          # 2. その上でインポートを実行（IDの不一致を防ぐ）
           terraform import -lock=false -var-file=$TARGET_VARS \
-          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already imported or failed, proceeding..."
+          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already managed"
 
       - name: Terraform Validate
         working-directory: ./my-project/terraform
@@ -76,10 +79,8 @@ jobs:
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "Target Environment: Production"
             terraform plan -lock=false -var-file=env-prod.tfvars
           else
-            echo "Target Environment: Test"
             terraform plan -lock=false -var-file=env-test.tfvars
           fi
 
@@ -121,10 +122,10 @@ jobs:
             terraform apply -var-file=env-test.tfvars -auto-approve
           fi
 
-      - name: Sleep for 60 seconds (Wait for VM Boot)
+      - name: Sleep for 60 seconds
         run: sleep 60
 
-      - name: Run Ansible Playbook (Full Validation)
+      - name: Run Ansible Playbook
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
