@@ -65,6 +65,19 @@ resource "azurerm_lb_backend_address_pool" "lb_pool" {
     name            = "BackEndAddressPool"
 }
 
+# 9-2. ALBインバウンドNATルール（SSH用）
+# ALBの22番ポートへの通信をバックエンドのVMへ転送するために必須です
+# ==========================================
+resource "azurerm_lb_nat_rule" "ssh" {
+    resource_group_name            = azurerm_resource_group.rg.name
+    loadbalancer_id                = azurerm_lb.alb.id
+    name                           = "SSHInbound"
+    protocol                       = "Tcp"
+    frontend_port                  = 22
+    backend_port                   = 22
+    frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+}
+
 # 10. ネットワークセキュリティグループ（NSG）の作成とルールの定義
 # ==========================================
 resource "azurerm_network_security_group" "nsg" {
@@ -72,8 +85,6 @@ resource "azurerm_network_security_group" "nsg" {
     location            = azurerm_resource_group.rg.location
     resource_group_name = azurerm_resource_group.rg.name
 
-    # SSH (Port 22) の許可設定
-    # GitHub Actions からのインバウンド通信を許可するために必須です
     security_rule {
         name                       = "AllowSSHInbound"
         priority                   = 100
@@ -88,7 +99,6 @@ resource "azurerm_network_security_group" "nsg" {
 }
 
 # 11. NSGとバックエンドサブネットの関連付け
-# これにより、上記で定義したSSH許可ルールがVMの所属するサブネットに適用されます
 # ==========================================
 resource "azurerm_subnet_network_security_group_association" "backend_nsg_assoc" {
     subnet_id                 = azurerm_subnet.backend.id
