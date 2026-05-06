@@ -20,12 +20,20 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【重要】管理用ストレージの自動作成
+      # 【重要】管理用ストレージの自動作成（存在する場合は継続）
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name tfstate-rg --location japaneast
-          az storage account create --name sttfstate20260506yuta --resource-group tfstate-rg --location japaneast --sku Standard_LRS
-          az storage container create --name tfstate --account-name sttfstate20260506yuta
+          az storage account create --name sttfstate20260506yuta --resource-group tfstate-rg --location japaneast --sku Standard_LRS || echo "Storage account already exists."
+          az storage container create --name tfstate --account-name sttfstate20260506yuta || echo "Container already exists."
+
+      # 【412エラー対策】残っているリースのロックを強制的に解除
+      - name: Force Break State Lease
+        run: |
+          az storage blob lease break \
+            --blob-name terraform.tfstate \
+            --container-name tfstate \
+            --account-name sttfstate20260506yuta || echo "No active lease to break, proceeding..."
 
       - name: HashiCorp - Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -49,7 +57,7 @@ jobs:
             TARGET_VARS="env-test.tfvars"
           fi
           
-          # -lock=false を追加して、デッドロックによる停止を回避します
+          # -lock=false を追加して、デッドロックによる停止を回避
           terraform import -lock=false -var-file=$TARGET_VARS \
           azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already imported or failed, proceeding..."
 
