@@ -3,4 +3,7 @@
 env          = "test"
 project_name = "web-test" # 本番と名前を分ける
 location     = "Japan East"
+
+# 【追加】検証用のスペックを指定（在庫不足エラー 409 回避のため、より一般的なサイズを指定）
+vm_size      = "Standard_B2s"
 # ==========================================
