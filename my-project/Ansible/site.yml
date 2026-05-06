@@ -1,22 +1,17 @@
 ---
 - name: Setup Web/App/DB Containers
   hosts: docker_hosts
-  become: yes  # sudo権限で実行
+  become: yes
 
-  # 【追加】GitHub Actions 等から渡される変数のデフォルト値を定義
-  vars:
-    mysql_root_password: "{{ mysql_root_password | default('password123') }}"
-    mysql_db_name: "{{ mysql_db_name | default('myapp_db') }}"
+  # ループの原因となる vars セクションを削除、または空にします
+  vars: {}
 
   tasks:
-    # 1. ユーザーのホームディレクトリを取得
-    # admin_username が変わっても動的にパスを特定します
     - name: Get remote user home directory
       shell: "getent passwd {{ ansible_user }} | cut -d: -f6"
       register: user_home
       changed_when: false
 
-    # 2. アプリ用ディレクトリの作成
     - name: Create app directory
       file:
         path: "{{ user_home.stdout }}/app"
@@ -25,8 +20,6 @@
         group: "{{ ansible_user }}"
         mode: '0755'
 
-    # 3. Docker Composeファイルの配置（Jinja2テンプレート）
-    # ここで mysql_root_password 等が注入されます
     - name: Deploy docker-compose.yml
       template:
         src: docker-compose.yml.j2
@@ -34,9 +27,12 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
+      # 【重要】ここで変数を定義することで、自己参照ループを防ぎつつ
+      # docker-compose.yml.j2 内の {{ mysql_root_password }} に値を渡します
+      vars:
+        mysql_root_password: "{{ mysql_root_password | default('password123') }}"
+        mysql_db_name: "{{ mysql_db_name | default('myapp_db') }}"
 
-    # 4. コンテナの起動
-    # Debian 12 (Docker公式リポジトリ版) は 'docker compose' (v2) コマンドを使用します
     - name: Start containers with Docker Compose
       command:
         cmd: "docker compose up -d"
@@ -44,7 +40,6 @@
       register: compose_output
       changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout or 'Running' in compose_output.stdout"
 
-    # 5. 疎通確認
     - name: Check container status
       command:
         cmd: "docker compose ps"
