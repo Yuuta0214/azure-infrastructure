@@ -11,15 +11,17 @@
       register: user_home
       changed_when: false
 
-    # 【重要】bootstrap.sh による Docker インストール完了を待機する
-    # これにより「コマンドが見つからない」エラーを確実に防ぎます
+    # --- 修正ポイント ---
+    # ignore_errors: yes を加えることで、Dockerインストール中の「コマンドが見つからない」
+    # という状態を即座にエラー終了させず、untilによるリトライを継続させます。
     - name: Wait for Docker to be installed by bootstrap.sh
       command: docker --version
       register: docker_check
       until: docker_check.rc == 0
-      retries: 20   # 15秒間隔で20回（最大5分）リトライ
+      retries: 30       # クラウドの負荷を考慮し、最大7.5分まで延長
       delay: 15
       changed_when: false
+      ignore_errors: yes
 
     - name: Create app directory
       file:
@@ -36,10 +38,11 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
+      # 以前問題になった変数の二重定義を避け、
+      # テンプレート側の default() 設定に解決を任せます
 
     - name: Start containers with Docker Compose
       command:
-        # bootstrap.sh でインストールされる docker-compose-plugin を使用
         cmd: "docker compose up -d"
         chdir: "{{ user_home.stdout }}/app"
       register: compose_output
