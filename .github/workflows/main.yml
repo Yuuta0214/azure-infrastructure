@@ -20,7 +20,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 管理用（State用）リソースグループは常にこれを使用
+      # 管理用（State用）リソースグループの作成
+      # ストレージ自体はどちらのリージョンの管理も可能なため、一旦 japanwest に固定しています
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name rg-storage-state --location japanwest
@@ -42,24 +43,26 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 【修正箇所】実行環境に応じたリソースグループ（web-test/web-project）を対象にする
+      # 環境に応じたリソースグループ名とリージョンを動的にセット
       - name: Terraform Import Existing Resources
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # ブランチに応じてインポート先のターゲット名を切り替え
+          # ブランチに応じてターゲット（名前・変数ファイル・場所）を切り替え
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             TARGET_RG="rg-web-project"
             TARGET_VARS="env-prod.tfvars"
+            TARGET_LOC="japaneast"
           else
             TARGET_RG="rg-web-test"
             TARGET_VARS="env-test.tfvars"
+            TARGET_LOC="japanwest"
           fi
           
-          # インフラ実行用のリソースグループを作成（存在しなければ）
-          az group create --name $TARGET_RG --location japanwest
+          # 決定したリージョンでリソースグループを作成（存在しなければ）
+          az group create --name $TARGET_RG --location $TARGET_LOC
           
           # Terraformの管理対象としてリソースグループをインポート
           terraform import -lock=false -var-file=$TARGET_VARS \

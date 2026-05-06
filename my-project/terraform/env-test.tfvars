@@ -9,5 +9,5 @@ project_name = "web-test"
 location     = "Japan West"
 
 # 【重要】B1s/B2sの在庫切れを回避するため、Standard_B2ms を指定
-vm_size      = "Standard_B2ms"
+vm_size      = "Standard_D2s_v3"
 # ==========================================
