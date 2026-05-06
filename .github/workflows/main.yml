@@ -21,7 +21,6 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # 管理用（State用）リソースグループの作成
-      # ストレージ自体はどちらのリージョンの管理も可能なため、一旦 japanwest に固定しています
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name rg-storage-state --location japanwest
@@ -50,7 +49,6 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # ブランチに応じてターゲット（名前・変数ファイル・場所）を切り替え
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             TARGET_RG="rg-web-project"
             TARGET_VARS="env-prod.tfvars"
@@ -61,10 +59,8 @@ jobs:
             TARGET_LOC="japanwest"
           fi
           
-          # 決定したリージョンでリソースグループを作成（存在しなければ）
           az group create --name $TARGET_RG --location $TARGET_LOC
           
-          # Terraformの管理対象としてリソースグループをインポート
           terraform import -lock=false -var-file=$TARGET_VARS \
           azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already managed"
 
@@ -133,11 +129,13 @@ jobs:
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          # 最新Ansibleでのエラー回避用：標準のコールバックを使用
+          ANSIBLE_STDOUT_CALLBACK: "default"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 【修正箇所】terraform output に -var-file フラグは不要なため削除
+          # VMのIPアドレスを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
           ansible-playbook -i inventory.ini site.yml \
