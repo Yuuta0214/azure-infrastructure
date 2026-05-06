@@ -106,8 +106,6 @@ jobs:
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform apply -var-file=$VAR_FILE -auto-approve
 
-      # 【改善点】固定のスリープを最短（20秒程度）まで短縮。
-      # SSHポートが開く最小時間だけ待機し、あとの「重い処理」は Ansible 内の wait_for が引き受けます。
       - name: Quick wait for SSH port
         run: sleep 20
 
@@ -115,7 +113,7 @@ jobs:
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          ANSIBLE_STDOUT_CALLBACK: "yaml" # ログを見やすく
+          # エラーの原因となっていた callback plugin 指定を削除
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
