@@ -3,7 +3,7 @@
   hosts: docker_hosts
   become: yes
 
-  # ループの原因となる vars セクションを削除、または空にします
+  # ループの温床となる vars セクションは完全に削除、または空にします
   vars: {}
 
   tasks:
@@ -27,11 +27,8 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
-      # 【重要】ここで変数を定義することで、自己参照ループを防ぎつつ
-      # docker-compose.yml.j2 内の {{ mysql_root_password }} に値を渡します
-      vars:
-        mysql_root_password: "{{ mysql_root_password | default('password123') }}"
-        mysql_db_name: "{{ mysql_db_name | default('myapp_db') }}"
+      # 【重要】vars: 定義をここに書くのをやめます。
+      # docker-compose.yml.j2 側で外部変数を直接解決するようにさせます。
 
     - name: Start containers with Docker Compose
       command:
@@ -43,7 +40,7 @@
     - name: Check container status
       command:
         cmd: "docker compose ps"
-        chdir: "{{ user_home.stdout }}/app"
+        chdir: "{{ user_home.stdout 'app' }}"
       register: ps_output
       changed_when: false
 
