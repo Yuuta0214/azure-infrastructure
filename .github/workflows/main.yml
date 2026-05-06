@@ -20,7 +20,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 管理用リソースグループ「rg-storage-state」の作成
+      # 管理用（State用）リソースグループは常にこれを使用
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name rg-storage-state --location japaneast
@@ -42,24 +42,26 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 【修正箇所】TARGET_RG を新しい命名規則「rg-storage-state」に合わせる
+      # 【修正箇所】実行環境に応じたリソースグループ（web-test/web-project）を対象にする
       - name: Terraform Import Existing Resources
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # .tfvars の project_name = "storage-state" に合わせるため一元化
-          TARGET_RG="rg-storage-state"
-          
+          # ブランチに応じてインポート先のターゲット名を切り替え
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TARGET_RG="rg-web-project"
             TARGET_VARS="env-prod.tfvars"
           else
+            TARGET_RG="rg-web-test"
             TARGET_VARS="env-test.tfvars"
           fi
           
+          # インフラ実行用のリソースグループを作成（存在しなければ）
           az group create --name $TARGET_RG --location japaneast
           
+          # Terraformの管理対象としてリソースグループをインポート
           terraform import -lock=false -var-file=$TARGET_VARS \
           azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already managed"
 

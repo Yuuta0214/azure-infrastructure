@@ -2,12 +2,12 @@
 # ==========================================
 env          = "prod"
 
-# 【修正箇所】"web-project" から "storage-state" に変更
-# これにより本番実行時も「rg-storage-state」という共通の箱を使用します
-project_name = "storage-state" 
+# 【修正】"storage-state" から "web-project" に戻します
+# これにより、本番インフラは「rg-web-project」に作成されます
+project_name = "web-project" 
 
 location     = "Japan East"
 
-# 【修正箇所】在庫不足 (409) 回避のため、Standard_B1s に変更（安全策）
-vm_size      = "Standard_B1s" 
+# 【重要】本番も在庫リスクを最小化するため Standard_B2ms に合わせます
+vm_size      = "Standard_B2ms" 
 # ==========================================
