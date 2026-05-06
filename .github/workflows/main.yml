@@ -20,14 +20,12 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 管理用（State用）リソースグループの作成
       - name: Create Backend Storage (One-time)
         run: |
           az group create --name rg-storage-state --location japanwest
           az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS || echo "Exists"
           az storage container create --name tfstate --account-name sttfstate20260506yuta || echo "Exists"
 
-      # 412エラー対策：リースの強制解除
       - name: Force Break State Lease
         run: |
           az storage blob lease break \
@@ -42,7 +40,6 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init
 
-      # 環境に応じたリソースグループ名とリージョンを動的にセット
       - name: Terraform Import Existing Resources
         working-directory: ./my-project/terraform
         env:
@@ -50,17 +47,11 @@ jobs:
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            TARGET_RG="rg-web-project"
-            TARGET_VARS="env-prod.tfvars"
-            TARGET_LOC="japaneast"
+            TARGET_RG="rg-web-project"; TARGET_VARS="env-prod.tfvars"; TARGET_LOC="japaneast"
           else
-            TARGET_RG="rg-web-test"
-            TARGET_VARS="env-test.tfvars"
-            TARGET_LOC="japanwest"
+            TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
-          
           az group create --name $TARGET_RG --location $TARGET_LOC
-          
           terraform import -lock=false -var-file=$TARGET_VARS \
           azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "Already managed"
 
@@ -78,11 +69,8 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            terraform plan -lock=false -var-file=env-prod.tfvars
-          else
-            terraform plan -lock=false -var-file=env-test.tfvars
-          fi
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          terraform plan -lock=false -var-file=$VAR_FILE
 
   # --- 2. デプロイジョブ ---
   terraform-apply:
@@ -110,29 +98,25 @@ jobs:
         run: terraform init
 
       - name: Terraform Apply
-        id: apply
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            terraform apply -var-file=env-prod.tfvars -auto-approve
-          else
-            terraform apply -var-file=env-test.tfvars -auto-approve
-          fi
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          terraform apply -var-file=$VAR_FILE -auto-approve
 
-      # 【今回の修正箇所】VMの起動とSSHサービスの立ち上がりを待つため、120秒へ延長
-      - name: Sleep for 120 seconds
-        run: sleep 120
+      # 【改善点】固定のスリープを最短（20秒程度）まで短縮。
+      # SSHポートが開く最小時間だけ待機し、あとの「重い処理」は Ansible 内の wait_for が引き受けます。
+      - name: Quick wait for SSH port
+        run: sleep 20
 
       - name: Run Ansible Playbook
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          ANSIBLE_STDOUT_CALLBACK: "default"
+          ANSIBLE_STDOUT_CALLBACK: "yaml" # ログを見やすく
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
