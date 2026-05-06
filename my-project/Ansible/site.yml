@@ -3,13 +3,22 @@
   hosts: docker_hosts
   become: yes
 
-  # ループの温床となる vars セクションは完全に削除、または空にします
   vars: {}
 
   tasks:
     - name: Get remote user home directory
       shell: "getent passwd {{ ansible_user }} | cut -d: -f6"
       register: user_home
+      changed_when: false
+
+    # 【重要】bootstrap.sh による Docker インストール完了を待機する
+    # これにより「コマンドが見つからない」エラーを確実に防ぎます
+    - name: Wait for Docker to be installed by bootstrap.sh
+      command: docker --version
+      register: docker_check
+      until: docker_check.rc == 0
+      retries: 20   # 15秒間隔で20回（最大5分）リトライ
+      delay: 15
       changed_when: false
 
     - name: Create app directory
@@ -27,11 +36,10 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: '0644'
-      # 【重要】vars: 定義をここに書くのをやめます。
-      # docker-compose.yml.j2 側で外部変数を直接解決するようにさせます。
 
     - name: Start containers with Docker Compose
       command:
+        # bootstrap.sh でインストールされる docker-compose-plugin を使用
         cmd: "docker compose up -d"
         chdir: "{{ user_home.stdout }}/app"
       register: compose_output
@@ -40,7 +48,7 @@
     - name: Check container status
       command:
         cmd: "docker compose ps"
-        chdir: "{{ user_home.stdout 'app' }}"
+        chdir: "{{ user_home.stdout }}/app"
       register: ps_output
       changed_when: false
 
