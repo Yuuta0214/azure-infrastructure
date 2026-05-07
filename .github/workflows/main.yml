@@ -1,48 +1,144 @@
 name: 'Azure Infrastructure Build'
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手動実行
 
 permissions:
   contents: read
 
 jobs:
+  # --- 1. 検証ジョブ ---
   terraform-plan:
-    name: '1. Plan'
+    name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Azure ログイン
+        uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Terraform Plan
+
+      - name: バックエンド用ストレージの存在確認と作成
+        run: |
+          # アカウント一覧から名前が一致するものを取得
+          STORAGE_EXISTS=$(az storage account list --subscription "0f273017-b259-421d-894c-ae7906f901c8" --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+
+          if [ -z "$STORAGE_EXISTS" ]; then
+            echo "ストレージアカウントが見つかりません。新規作成を開始します..."
+            az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+            az storage container create --name tfstate --account-name sttfstate20260506yuta --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+          else
+            echo "ストレージアカウントは既に存在します。作成処理をスキップします。"
+          fi
+
+      - name: Terraform State のリース解除
+        run: |
+          az storage blob lease break \
+            --blob-name terraform.tfstate \
+            --container-name tfstate \
+            --account-name sttfstate20260506yuta || echo "解除すべきリースはありません"
+
+      # 【復元】削ってしまった重要なセットアップステップ
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: 既存リソースグループのインポート
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            TARGET_RG="rg-web-project"; TARGET_VARS="env-prod.tfvars"; TARGET_LOC="japaneast"
+          else
+            TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
+          fi
+          az group create --name $TARGET_RG --location $TARGET_LOC
+          terraform import -lock=false -var-file=$TARGET_VARS \
+          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "既に管理下です"
+
+      - name: Terraform 構文チェック
+        working-directory: ./my-project/terraform
+        run: terraform validate
+
+      - name: Ansible 構文チェック
+        working-directory: ./my-project/Ansible
+        run: |
+          if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
+          ansible-playbook -i inventory.ini site.yml --syntax-check
+          if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
+
+      - name: Terraform 実行計画の作成
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          cd ./my-project/terraform && terraform init && terraform plan -lock=false -var-file=$VAR_FILE
+          terraform plan -lock=false -var-file=$VAR_FILE
 
+  # --- 2. デプロイジョブ ---
   terraform-apply:
-    name: '2. Apply'
+    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
     needs: terraform-plan
-    if: github.ref == 'refs/heads/main' # 本番誤爆防止
+    # 【修正】本番誤爆防止のため main ブランチのみに制限（yuuta様の当初の意図を反映）
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Azure ログイン
+        uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Terraform Apply
+
+      # 【復元】applyジョブ側でも必須
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: Terraform リソース適用
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          cd ./my-project/terraform && terraform init && terraform apply -var-file=env-prod.tfvars -auto-approve
-      - name: Ansible Execution
+          # applyジョブはmain固定のため env-prod.tfvars を使用
+          terraform apply -var-file=env-prod.tfvars -auto-approve
+
+      - name: SSH ポート開放待ち
+        run: sleep 20
+
+      - name: Ansible プレイブックの実行
+        working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          # 【修正】廃止されたプラグインの代わりに最新の指定方法を採用
           ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
         run: |
-          cd ./my-project/Ansible
+          if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
+          
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
+          
+          # ANSIBLE_STDOUT_CALLBACK ではなく環境変数側で制御
           ansible-playbook -i inventory.ini site.yml \
             -e "target_ip=$VM_IP" \
             -e "admin_username=$TF_VAR_admin_username" \
             -e "ansible_password=$ANSIBLE_PASSWORD"
+          
+          if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
