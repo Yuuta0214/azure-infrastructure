@@ -1,13 +1,12 @@
-# ==========================================
-# 1. Terraform 本体設定
-# ==========================================
+# providers.tf
 terraform {
   required_version = ">= 1.7.0"
 
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.0" # v4.x 系の最新機能を利用
+      # バージョンを 3.x 系の最終安定版に固定してエラーを回避
+      version = "3.116.0" 
     }
   }
 
@@ -16,13 +15,10 @@ terraform {
     storage_account_name = "sttfstate20260506yuta"
     container_name       = "tfstate"
     key                  = "terraform.tfstate"
-    use_oidc             = true # セキュアな認証
+    use_oidc             = true 
   }
 }
 
-# ==========================================
-# 2. Azure Providerの動作設定
-# ==========================================
 provider "azurerm" {
   use_oidc = true
 
@@ -30,10 +26,8 @@ provider "azurerm" {
     resource_group {
       prevent_deletion_if_contains_resources = true
     }
-    key_vault {
-      purge_soft_delete_on_destroy    = false
-      recover_soft_deleted_key_vaults = true
-    }
+
+    # 一旦、エラーの出やすい詳細オプションを最小限に絞ります
     virtual_machine {
       delete_os_disk_on_deletion = true
     }

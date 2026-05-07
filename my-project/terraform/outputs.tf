@@ -1,54 +1,54 @@
 # ==========================================
 # 13. 実行結果の表示（Output）
-# デプロイ完了後、アクセス情報や管理情報を出力
+# 運用・保守、および Ansible 連携のための定義
 # ==========================================
 
-# デプロイされた環境名
-output "environment" {
-  description = "デプロイされた環境（prod / test）"
-  value       = var.environment
+# 1. Ansible 連携用（ターゲットホストの特定に必須）
+output "ansible_host_ip" {
+  description = "Ansible が接続先として使用する ALB のパブリック IP です。"
+  value       = azurerm_public_ip.lb_pip.ip_address
 }
 
-# リソースグループ名
+# 2. WebサイトへのアクセスURL
+output "web_url" {
+  description = "WebサイトのアクセスURL（ポート 8080）です。"
+  value       = "http://${azurerm_public_ip.lb_pip.ip_address}:8080"
+}
+
+# 3. インフラ管理情報
 output "resource_group_name" {
   description = "作成されたリソースグループ名です。"
   value       = azurerm_resource_group.rg.name
 }
 
-# WebサイトへのアクセスURL
-# 【修正】Plan時の値未確定によるエラーを回避するため try() を使用
-output "web_url" {
-  description = "WebサイトのアクセスURL（ALB経由）です。"
-  value       = "http://${try(azurerm_public_ip.lb_pip.ip_address, "pending")}:8080"
-}
-
-# ALBのパブリックIP
-# 【修正】Plan時のエラーを回避
-output "alb_public_ip" {
-  description = "ALBのパブリックIPアドレスです。"
-  value       = try(azurerm_public_ip.lb_pip.ip_address, "pending")
-}
-
-# VMのプライベートIP
-# 【修正】NICが新規作成の場合に備え、安全な参照に変更
-output "vm_private_ip" {
-  description = "VMの内部IPアドレスです。"
-  value       = try(azurerm_network_interface.nic.private_ip_address, "pending")
-}
-
-# SSH接続コマンド（Bastion トンネル経由）
-output "ssh_command_via_bastion" {
-  description = "Azure Bastionを経由してVMにSSH接続するためのトンネル作成コマンドです。"
-  value       = "az network bastion tunnel --name bastion-host --resource-group ${azurerm_resource_group.rg.name} --target-resource-id ${azurerm_linux_virtual_machine.vm.id} --resource-port 22 --port 50022"
-}
-
-output "ssh_connect_local" {
-  description = "トンネル作成後、ローカルの別ターミナルから実行する接続コマンドです。"
-  value       = "ssh -i ~/.ssh/id_rsa ${var.admin_username}@127.0.0.1 -p 50022"
-}
-
-# VM ID (運用・監視用)
 output "vm_id" {
   description = "作成された仮想マシンのリソースIDです。"
   value       = azurerm_linux_virtual_machine.vm.id
+}
+
+output "vm_private_ip" {
+  description = "VMの内部IPアドレス（VNet内）です。"
+  value       = azurerm_network_interface.nic.private_ip_address
+}
+
+# 4. 運用・保守用 SSH 接続ガイド
+# Bastion を使用したセキュアな接続手順を出力します
+output "ssh_step_1_tunnel" {
+  description = "STEP1: Azure Bastion 経由でトンネルを作成します（別ターミナルで実行）"
+  value       = "az network bastion tunnel --name bastion-host --resource-group ${azurerm_resource_group.rg.name} --target-resource-id ${azurerm_linux_virtual_machine.vm.id} --resource-port 22 --port 50022"
+}
+
+output "ssh_step_2_connect" {
+  description = "STEP2: トンネル経由で VM にログインします（パスワードが要求されます）"
+  value       = "ssh ${var.admin_username}@127.0.0.1 -p 50022"
+}
+
+# 5. 環境識別
+output "environment_info" {
+  description = "現在のデプロイ環境"
+  value       = {
+    env     = var.environment
+    project = var.project_name
+    region  = var.location
+  }
 }

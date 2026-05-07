@@ -1,15 +1,22 @@
 # ==========================================
-# 14. リージョンの定義
+# 1. 基盤・環境定義
 # ==========================================
 variable "location" {
   description = "リソースを配置するリージョン"
   type        = string
-  default     = "japanwest" 
+  # defaultは設定せず、tfvarsでの指定を必須にします
 }
 
-# ==========================================
-# 15. プロジェクト名の定義
-# ==========================================
+variable "environment" {
+  description = "実行環境 (prod または test)"
+  type        = string
+
+  validation {
+    condition     = contains(["prod", "test"], var.environment)
+    error_message = "環境名は 'prod' または 'test' のいずれかを指定してください。"
+  }
+}
+
 variable "project_name" {
   description = "プロジェクトの基本名称"
   type        = string
@@ -22,35 +29,20 @@ variable "project_name" {
 }
 
 # ==========================================
-# 16. 実行環境の定義
-# ==========================================
-variable "environment" {
-  description = "実行環境 (prod または test)"
-  type        = string
-  default     = "test"
-
-  validation {
-    condition     = contains(["prod", "test"], var.environment)
-    error_message = "環境名は 'prod' または 'test' のいずれかを指定してください。"
-  }
-}
-
-# ==========================================
-# 17. VMサイズの定義
+# 2. コンピューティング定義 (VMスペック)
 # ==========================================
 variable "vm_size" {
   description = "VMのサイズ（SKU）"
   type        = string
-  default     = "Standard_B2s"
+  # リージョンごとの在庫（SkuNotAvailable）に柔軟に対応するため、tfvarsで明示させます
 }
 
 # ==========================================
-# 18. 管理ユーザー名の定義
+# 3. 認証・セキュリティ定義
 # ==========================================
 variable "admin_username" {
   description = "VMの管理者ユーザー名"
   type        = string
-  default     = "azureuser"
 
   validation {
     condition     = !contains(["admin", "root", "test", "user", "azure", "administrator"], var.admin_username)
@@ -58,14 +50,10 @@ variable "admin_username" {
   }
 }
 
-# ==========================================
-# 19. パスワードの定義（修正済み）
-# ==========================================
 variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
   sensitive   = true
-  # defaultを削除し、必須入力にします。GitHub Actions側から確実に受け取るための設定です。
 
   validation {
     condition     = length(var.admin_password) >= 12
@@ -73,20 +61,19 @@ variable "admin_password" {
   }
 }
 
-# ==========================================
-# 20. SSH公開鍵の定義
-# ==========================================
 variable "ssh_public_key" {
-  description = "VMに接続するためのSSH公開鍵（現在はパスワード認証を優先するため空を許容）"
+  description = "VMに接続するためのSSH公開鍵（パスワード認証使用時は空文字を指定可能）"
   type        = string
   default     = ""
 }
 
 # ==========================================
-# 21. 追加タグ
+# 4. メタデータ定義 (運用管理用)
 # ==========================================
 variable "tags" {
-  description = "すべてのリソースに付与する追加のタグ"
+  description = "すべてのリソースに付与する共通タグ（BusinessUnit, Project等）"
   type        = map(string)
-  default     = {}
+  default     = {
+    ManagedBy = "Terraform"
+  }
 }

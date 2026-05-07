@@ -1,23 +1,29 @@
 # ==========================================
-# 本番環境用パラメーター (env-prod.tfvars)
+# 1. 基盤・環境定義
 # ==========================================
-
-# 修正ポイント: variables.tfのバリデーションに合わせ "prod" に設定
+location     = "japaneast"
 environment  = "prod"
 project_name = "web"
-location     = "japaneast" 
 
-# 本番環境用 VMサイズ
+# ==========================================
+# 2. コンピューティング定義 (VMスペック)
+# ==========================================
 vm_size      = "Standard_D2s_v3"
 
-# 管理ユーザー名
+# ==========================================
+# 3. 認証・セキュリティ定義
+# ==========================================
 admin_username = "azureuser"
+# admin_password は GitHub Secrets (TF_VAR_admin_password) から注入するため記述不要
+ssh_public_key = ""
 
-# 存在しない変数 ssh_public_key の記述は、エラーを避けるためここには含めません。
-# パスワードは GitHub Secrets から注入されるため、ここへの記載は不要です。
-
-# 追加の管理タグ
+# ==========================================
+# 4. メタデータ定義 (運用管理用)
+# ==========================================
 tags = {
+  Environment  = "prod"
+  Project      = "web"
   BusinessUnit = "Production-Ops"
   CostCenter   = "WEB-101"
+  ManagedBy    = "Terraform"
 }

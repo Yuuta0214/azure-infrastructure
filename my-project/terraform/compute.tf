@@ -1,4 +1,20 @@
 # ==========================================
+# 0. 共通ローカル変数の定義 (運用・保守用)
+# ==========================================
+locals {
+  # リソース名の接頭辞 (例: web-test)
+  resource_prefix = "${var.project_name}-${var.environment}"
+
+  # 動的なタグ生成: 実行時の日付を取得
+  current_date = formatdate("YYYY-MM-DD", timestamp())
+
+  # tfvarsのタグに動的な CreatedDate を結合
+  common_tags = merge(var.tags, {
+    CreatedDate = local.current_date
+  })
+}
+
+# ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
@@ -13,6 +29,13 @@ resource "azurerm_network_interface" "nic" {
   }
 
   tags = local.common_tags
+
+  # 日付タグが毎回更新されないよう、作成時のみの付与とする
+  lifecycle {
+    ignore_changes = [
+      tags["CreatedDate"],
+    ]
+  }
 }
 
 # ==========================================
@@ -24,10 +47,6 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_as
   backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
 }
 
-# ※【セキュリティ設計】
-# インターネットからの直接的なSSH攻撃を防ぐため、LB経由のSSH用NATルールは一切定義しません。
-# メンテナンス時は、別途構築するAzure Bastion経由でのアクセスを想定します。
-
 # ==========================================
 # 12. Linux 仮想マシン（VM）の作成
 # ==========================================
@@ -38,26 +57,20 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # 【修正ポイント】GitHub Secretsのパスワードを使用するためパスワード認証を有効化
-  # これにより、公開鍵(SSH_PUBLIC_KEY)がなくても構築が成功します
+  # パスワード認証を有効化
   disable_password_authentication = false
   admin_password                  = var.admin_password
-
-  # SSH公開鍵ブロックは、Secretsに鍵が存在しないため削除しました
-  # 今後は admin_password を使用してBastion経由でログインします
 
   network_interface_ids = [
     azurerm_network_interface.nic.id,
   ]
 
-  # ストレージ設定
   os_disk {
     name                 = "osdisk-vm-${local.resource_prefix}"
-    caching               = "ReadWrite"
-    storage_account_type = "StandardSSD_LRS" # 性能とコストの最適解
+    caching              = "ReadWrite"
+    storage_account_type = "StandardSSD_LRS"
   }
 
-  # OSイメージ（最新の安定版Debian 12を指定）
   source_image_reference {
     publisher = "debian"
     offer     = "debian-12"
@@ -65,25 +78,22 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # 13. プロビジョニング（Cloud-init）の設定
-  # 外部スクリプトを読み込み、Ansibleが動作可能な状態（Python導入等）まで自動化します
+  # 13. プロビジョニング（Cloud-init）
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
   }))
 
-  # 【ベストプラクティス】マネージド ID (SystemAssigned) の有効化
-  # インスタンス自体に権限を持たせ、将来的にシークレットなしで各種Azureサービスへ接続可能にします
   identity {
     type = "SystemAssigned"
   }
 
   tags = local.common_tags
 
-  # インフラ変更時の挙動制御
   lifecycle {
     ignore_changes = [
-      admin_password, # パスワード変更による意図しない再起動を防止
+      admin_password,    # パスワード変更による再起動防止
+      tags["CreatedDate"], # 翌日以降のデプロイで日付が更新されるのを防止
     ]
   }
 }

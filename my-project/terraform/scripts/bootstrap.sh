@@ -1,44 +1,58 @@
 #!/bin/bash
 # ==========================================
 # VM初期化スクリプト (Infrastructure Bootstrap)
-# 役割: Ansibleが実行可能になるまでの最小環境構築
+# 役割: OSの最小限の健全性確保とAnsible実行環境の整備
 # ==========================================
 set -euo pipefail
 
-# すべての出力をログに記録 (デバッグ用)
+# ログ記録設定 (保守用: 後で /var/log/user-data.log を確認可能に)
 exec > >(tee -a /var/log/user-data.log | logger -t user-data) 2>&1
 
-echo "*** [START] Bootstrap: Preparing for Ansible ***"
+echo "*** [START] Bootstrap: $(date) ***"
 
-# 1. パッケージマネージャーのロック競合を回避
-# Ubuntu/Debianの自動更新サービスがaptを掴んでAnsibleが失敗するのを防ぎます
-echo "Disabling unattended-upgrades to prevent apt lock..."
-systemctl stop unattended-upgrades || true
-systemctl disable unattended-upgrades || true
+# 1. aptロックの安全な待機
+# 他のプロセスがaptを使用中の場合、最大300秒待機するように設定
+echo "Waiting for apt locks to be released..."
+while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 ; do
+    echo "Waiting for other software managers to finish..."
+    sleep 5
+done
 
-# 2. aptの更新とAnsible実行に必要な最小パッケージの導入
-# DEBIAN_FRONTEND=noninteractive によりプロンプト待ちで停止するのを防ぎます
+# 2. パッケージ更新とPythonの導入 (Ansible用)
 export DEBIAN_FRONTEND=noninteractive
+echo "Installing minimal requirements for Ansible..."
 
-echo "Updating apt and installing Python3..."
-# 120秒のタイムアウトを設定し、一時的なロックがあっても待機するようにします
+# 120秒のタイムアウトを設定し、確実にインストール
 apt-get -o DPkg::Lock::Timeout=120 update -y
 apt-get -o DPkg::Lock::Timeout=120 install -y \
     python3 \
+    python3-pip \
     python3-apt \
     ca-certificates \
     curl \
-    gnupg
+    sudo
 
-# 3. ホスト名の設定 (Terraformから渡された変数を使用)
-echo "Setting hostname to ${hostname}..."
-hostnamectl set-hostname "${hostname}"
+# 3. ホスト名の設定 (Terraformから注入された変数を使用)
+if [ -n "${hostname}" ]; then
+    echo "Setting hostname to ${hostname}..."
+    hostnamectl set-hostname "${hostname}"
+    echo "127.0.1.1 ${hostname}" >> /etc/hosts
+fi
 
-# 4. Ansible実行の安全性確保 (境界線の定義)
-# Ansible側の site.yml で wait_for を使い、このファイルの存在を確認させます。
-# これにより、インフラ準備が整う前にAnsibleが走り始める「衝突」を防止します。
-echo "Creating synchronization flag for Ansible..."
-echo "Infrastructure is ready for configuration at $(date)" > /var/tmp/bootstrap_complete
+# 4. 管理ユーザー（${admin_username}）の権限調整
+# Ansibleが sudo 実行時にパスワードを求められないように設定 (保守性向上)
+echo "Configuring sudoers for ${admin_username}..."
+echo "${admin_username} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${admin_username}"
+chmod 0440 "/etc/sudoers.d/${admin_username}"
+
+# 5. 完了フラグの作成 (Ansible側の wait_for タスクとの同期用)
+# このファイルが存在＝Ansibleが走り始めて良い状態、という「境界線」を作ります
+echo "Creating synchronization flag..."
+cat <<EOF > /var/tmp/bootstrap_complete
+bootstrap_version=1.0
+completion_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+status=ready
+EOF
+
 sync
-
-echo "*** [SUCCESS] Bootstrap Complete ***"
+echo "*** [SUCCESS] Bootstrap Complete: Infrastructure is ready ***"
