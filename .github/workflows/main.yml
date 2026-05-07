@@ -27,14 +27,17 @@ jobs:
           SUB_ID=$(az account show --query id -o tsv)
           echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
-      - name: バックエンド用ストレージの整合性確保
+      - name: バックエンド用ストレージの存在確認と作成
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           CONTAINER_NAME="tfstate"
-          az group create --name $RG_NAME --location japanwest || true
-          az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS || true
-          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || true
+          
+          # 修正ポイント: 存在確認のループを止め、作成コマンドを直接実行（既存時はエラーを無視）
+          # これにより、数分間のタイムアウト待ちが発生しなくなります
+          az group create --name $RG_NAME --location japanwest --output none
+          az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --output none || true
+          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login --output none || true
 
       - name: Terraform State のリース解除
         run: |
@@ -59,7 +62,8 @@ jobs:
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC || true
-          # インポート失敗を許容しつつ、対話モードを完全にオフにする
+          
+          # -input=false を追加して、不測のプロンプト待機を完全に封鎖
           terraform import -input=false -lock=false -var-file=$TARGET_VARS \
             azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || true
 
