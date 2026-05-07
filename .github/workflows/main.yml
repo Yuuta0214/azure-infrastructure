@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # OIDC認証に必須
 
 jobs:
   # ==========================================
@@ -14,9 +15,6 @@ jobs:
     name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
     steps:
-      - name: Set up job
-        uses: actions/checkout@v4
-
       - name: コードのチェックアウト
         uses: actions/checkout@v4
 
@@ -45,28 +43,31 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init -input=false
 
-      - name: 既存リソースグループのインポート
+      - name: 既存リソースグループのインポート (整合性確保)
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
+          # 修正: main.tf の命名規則と完全に一致させる
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            TARGET_RG="rg-web-project"; TARGET_VARS="env-prod.tfvars"; TARGET_LOC="japaneast"
+            ENV="prod"; VAR_FILE="env-prod.tfvars"; LOC="japaneast"
           else
-            TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
+            ENV="test"; VAR_FILE="env-test.tfvars"; LOC="japanwest"
           fi
-          az group create --name $TARGET_RG --location $TARGET_LOC || true
-          terraform import -input=false -lock=false -var-file=$TARGET_VARS \
+          PROJECT="web"
+          TARGET_RG="rg-$PROJECT-$ENV"
+          
+          # リソースグループが存在しない場合のみ作成し、その後インポート
+          az group create --name $TARGET_RG --location $LOC --output none || true
+          terraform import -input=false -var-file=$VAR_FILE \
             azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$TARGET_RG || true
 
-      - name: Terraform 構文チェック
-        working-directory: ./my-project/terraform
-        run: terraform validate
-
-      - name: Ansible 構文チェック
-        working-directory: ./my-project/Ansible
-        run: ansible-playbook site.yml --syntax-check
+      - name: 構文チェック (Terraform & Ansible)
+        working-directory: ./my-project
+        run: |
+          cd terraform && terraform validate
+          cd ../Ansible && ansible-playbook site.yml --syntax-check
 
       - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
@@ -75,14 +76,14 @@ jobs:
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform plan -lock=false -var-file=$VAR_FILE -input=false
+          terraform plan -var-file=$VAR_FILE -input=false
 
   # ==========================================
   # 2. 適用と Ansible デプロイ (Apply & Ansible Deploy)
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    # 【安全策】mainブランチ（本番）の場合は、自動で実行されないように制限を追加
+    # test環境（非mainブランチ）のみ自動実行。本番は安全のため手動トリガー推奨
     if: github.ref != 'refs/heads/main'
     needs: terraform-plan
     runs-on: ubuntu-latest
@@ -115,14 +116,14 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+          ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
+          # 修正: outputs.tf で新設した専用の Output 名を使用
+          VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
+          
           ansible-playbook -i inventory.ini site.yml \
-            --extra-vars "ansible_host=$VM_IP ansible_user=$TF_VAR_admin_username ansible_password=$TF_VAR_admin_password" \
-            -e "target_ip=$VM_IP" \
+            --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS" \
+            -e "admin_username=$ADMIN_USER" \
             -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
-            -e "mysql_password=$MYSQL_PASSWORD" \
-            -e "mysql_user=webuser" \
-            -e "mysql_db_name=webapp_db"
+            -e "mysql_password=$MYSQL_PASSWORD"
