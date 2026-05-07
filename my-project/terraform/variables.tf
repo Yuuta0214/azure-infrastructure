@@ -4,16 +4,16 @@
 variable "location" {
   description = "リソースを配置するリージョン"
   type        = string
-  default     = "japaneast" # 東日本（標準）
+  default     = "japanwest" # ログの japanwest に合わせます
 }
 
 # ==========================================
 # 15. プロジェクト名の定義
 # ==========================================
 variable "project_name" {
-  description = "プロジェクトの基本名称（英小文字、数字、ハイフンのみ）"
+  description = "プロジェクトの基本名称"
   type        = string
-  default     = "web-project"
+  default     = "web" # ログの「rg-web-test」に合わせて「web-project」から「web」に変更
 
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
@@ -22,15 +22,15 @@ variable "project_name" {
 }
 
 # ==========================================
-# 16. 実行環境の定義（prod / test）
+# 16. 実行環境の定義
 # ==========================================
-variable "env" {
+variable "environment" { # 変数名を env から environment に修正し、Actions側と統一
   description = "実行環境 (prod または test)"
   type        = string
   default     = "test"
 
   validation {
-    condition     = contains(["prod", "test"], var.env)
+    condition     = contains(["prod", "test"], var.environment)
     error_message = "環境名は 'prod' または 'test' のいずれかを指定してください。"
   }
 }
@@ -41,7 +41,7 @@ variable "env" {
 variable "vm_size" {
   description = "VMのサイズ（SKU）"
   type        = string
-  default     = "Standard_B2s" # 開発・テストに最適なコスト効率の良いサイズ
+  default     = "Standard_B2s"
 }
 
 # ==========================================
@@ -53,33 +53,32 @@ variable "admin_username" {
   default     = "azureuser"
 
   validation {
-    # Azure Linux VMで予約されている、または非推奨のユーザー名をブロック
     condition     = !contains(["admin", "root", "test", "user", "azure", "administrator"], var.admin_username)
     error_message = "セキュリティおよびAzureの制限により 'admin', 'root', 'test', 'user', 'azure' 等はユーザー名に使用できません。"
   }
 }
 
 # ==========================================
-# 19. パスワードの定義（機密情報）
+# 19. パスワードの定義
 # ==========================================
 variable "admin_password" {
-  description = "VMの管理者パスワード（12文字以上、複雑性要件必須）"
+  description = "VMの管理者パスワード"
   type        = string
-  sensitive   = true # コンソール出力やログへの露出を防ぎます
-  default     = null # 安全のため、tfvarsまたはGitHub Secretsからの入力を想定
+  sensitive   = true
+  default     = null 
 }
 
 # ==========================================
 # 20. SSH公開鍵の定義
 # ==========================================
 variable "ssh_public_key" {
-  description = "VMに接続するためのSSH公開鍵（パスワード認証より安全な接続に必須）"
+  description = "VMに接続するためのSSH公開鍵"
   type        = string
   default     = ""
 }
 
 # ==========================================
-# 21. 追加タグ（任意）
+# 21. 追加タグ
 # ==========================================
 variable "tags" {
   description = "すべてのリソースに付与する追加のタグ"

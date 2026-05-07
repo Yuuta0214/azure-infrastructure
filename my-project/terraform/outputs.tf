@@ -6,7 +6,8 @@
 # デプロイされた環境名
 output "environment" {
   description = "デプロイされた環境（prod / test）"
-  value       = var.env
+  # 【修正】var.env から var.environment に変更
+  value       = var.environment
 }
 
 # リソースグループ名

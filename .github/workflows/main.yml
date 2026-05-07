@@ -26,8 +26,6 @@ jobs:
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
-          
-          # IDをその場で取得し、以降のステップで再利用
           SUB_ID=$(az account show --query id -o tsv)
           echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
@@ -58,8 +56,6 @@ jobs:
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC || true
-          
-          # 環境変数から取得したSUB_IDを確実に使用
           terraform import -lock=false -var-file=$TARGET_VARS \
             azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported"
 
@@ -127,9 +123,11 @@ jobs:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
+          # 最新のIPを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # インベントリファイルのパースエラーを回避するため、--extra-vars で接続情報を強制注入
+          # インベントリファイルのパースエラーを回避するため、--extra-vars で接続情報を注入
+          # ansible_user には secrets から取得した値を直接渡すことで、変数の齟齬を防止
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$TF_VAR_admin_username" \
             -e "target_ip=$VM_IP" \
