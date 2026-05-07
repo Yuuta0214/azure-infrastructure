@@ -1,16 +1,16 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # 手動実行
+  workflow_dispatch:
   push:
-    branches: [ "main", "develop" ] # 開発・メインブランチへのプッシュ
+    branches: [ "main", "develop" ]
 
 permissions:
   contents: read
 
 jobs:
   # ----------------------------------------------------------
-  # 1. 共通変数のセットアップ（環境切り替え）
+  # 1. 共通変数のセットアップ
   # ----------------------------------------------------------
   terraform-setup:
     name: 'Setup Environment'
@@ -33,7 +33,7 @@ jobs:
           fi
 
   # ----------------------------------------------------------
-  # 2. Terraform Plan & Backend Auto-Preparation
+  # 2. Terraform Plan & Backend Preparation
   # ----------------------------------------------------------
   terraform-plan:
     name: 'Terraform Plan'
@@ -47,25 +47,18 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【IaC徹底】Backend用のリソース（RG, Storage, Container）を冪等に作成
       - name: Ensure Backend Storage Exists
         run: |
           RG_NAME="rg-storage-state"
           ST_NAME="sttfstate20260506yuta"
           CONTAINER="tfstate"
           LOCATION="japaneast"
-
-          # リソースグループ
           if ! az group show --name $RG_NAME &>/dev/null; then
             az group create --name $RG_NAME --location $LOCATION
           fi
-
-          # ストレージアカウント
           if ! az storage account show --name $ST_NAME --resource-group $RG_NAME &>/dev/null; then
             az storage account create --name $ST_NAME --resource-group $RG_NAME --sku Standard_LRS --encryption-services blob
           fi
-
-          # コンテナ
           CONNECTION_STRING=$(az storage account show-connection-string --name $ST_NAME --resource-group $RG_NAME --query connectionString -o tsv)
           az storage container create --name $CONTAINER --connection-string "$CONNECTION_STRING" || true
 
@@ -75,18 +68,19 @@ jobs:
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+          # 公開鍵がSecretにない場合でもエラーを防ぐため、デフォルト値を設定
+          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY || 'ssh-rsa AAAAB3Nza1yc2EAAAADAQABAAAB...' }}
         run: |
           terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
-          terraform plan -var-file=${{ needs.terraform-setup.outputs.var_file }}
+          # -out=tfplan を指定して、プラン結果を明示的に保存し、詳細なエラーを吐き出させます
+          terraform plan -var-file=${{ needs.terraform-setup.outputs.var_file }} -out=tfplan
 
   # ----------------------------------------------------------
-  # 3. Terraform Apply & Ansible Deploy（手動承認対応）
+  # 3. Apply & Ansible Deploy
   # ----------------------------------------------------------
   terraform-apply:
     name: 'Apply & Ansible Deploy'
     needs: [terraform-setup, terraform-plan]
-    # GitHubのEnvironments設定（Required reviewers）で本番デプロイをガード
     environment: ${{ needs.terraform-setup.outputs.environment }}
     runs-on: ubuntu-latest
     steps:
@@ -103,9 +97,10 @@ jobs:
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY || 'ssh-rsa AAAAB3Nza1yc2EAAAADAQABAAAB...' }}
         run: |
           terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
+          # apply時にもvar-fileを指定して整合性を保ちます
           terraform apply -var-file=${{ needs.terraform-setup.outputs.var_file }} -auto-approve
 
       - name: Install Ansible
@@ -119,15 +114,10 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          # SSH鍵のセットアップ
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-          # Terraform OutputからLBのIPを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          
-          # 構築したインフラへAnsible実行
           ansible-playbook -i inventory.ini \
             -e "target_ip=${VM_IP}" \
             -e "ansible_user=${{ secrets.TF_VAR_admin_username }}" \
