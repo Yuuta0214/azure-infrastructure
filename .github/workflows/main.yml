@@ -70,9 +70,10 @@ jobs:
       - name: Ansible 構文チェック
         working-directory: ./my-project/Ansible
         run: |
-          # 構文チェック時もプロジェクト内の古い ansible.cfg を無視させる
-          export ANSIBLE_CONFIG=/dev/null
+          # 構文チェック時もプロジェクト内の古い ansible.cfg を読み込ませないためにリネーム
+          if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
           ansible-playbook -i inventory.ini site.yml --syntax-check
+          if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
 
       - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
@@ -123,12 +124,14 @@ jobs:
       - name: Ansible プレイブックの実行
         working-directory: ./my-project/Ansible
         env:
-          # プロジェクト内の古い ansible.cfg を読み込ませず、最新仕様で動作させる
-          ANSIBLE_CONFIG: "/dev/null"
+          # 不安定な環境変数を廃止し、実行ロジック内で設定ファイルを回避
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
+          # 実行ディレクトリに設定ファイルがある場合は一時的に退避し、最新Ansibleのデフォルト挙動（yaml出力等）に任せる
+          if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
+          
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
           # 引数を明示的に渡し、環境に依存しない実行を担保
@@ -136,3 +139,6 @@ jobs:
             -e "target_ip=$VM_IP" \
             -e "admin_username=$TF_VAR_admin_username" \
             -e "ansible_password=$ANSIBLE_PASSWORD"
+          
+          # 実行後に設定ファイルを戻す
+          if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
