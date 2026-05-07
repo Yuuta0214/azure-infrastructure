@@ -124,18 +124,17 @@ jobs:
       - name: Ansible プレイブックの実行
         working-directory: ./my-project/Ansible
         env:
-          # 不安定な環境変数を廃止し、実行ロジック内で設定ファイルを回避
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 実行ディレクトリに設定ファイルがある場合は一時的に退避し、最新Ansibleのデフォルト挙動（yaml出力等）に任せる
+          # 実行ディレクトリに設定ファイルがある場合は一時的に退避
           if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
           
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # 【修正】Ansible実行前にaptのロックが解除されるまで待機するアドホックコマンドを実行
-          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done" --become
+          # 【修正】aptのロック解除待機に加え、OS側のパッケージマネージャーを強制的に安定させるためのリトライ付きUpdateを実行
+          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done && sudo apt-get update --fix-missing" --become
 
           # 引数を明示的に渡し、環境に依存しない実行を担保
           ansible-playbook -i inventory.ini site.yml \
