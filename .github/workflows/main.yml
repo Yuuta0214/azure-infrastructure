@@ -26,6 +26,8 @@ jobs:
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
+          
+          # サブスクリプションIDを取得して環境変数に格納
           SUB_ID=$(az account show --query id -o tsv)
           echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
@@ -45,7 +47,7 @@ jobs:
 
       - name: Terraform 初期化
         working-directory: ./my-project/terraform
-        run: terraform init
+        run: terraform init -input=false
 
       - name: 既存リソースグループのインポート
         working-directory: ./my-project/terraform
@@ -55,9 +57,12 @@ jobs:
           else
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
+          # リソースグループが存在しない場合のみ作成
           az group create --name $TARGET_RG --location $TARGET_LOC || true
+          
+          # インポート実行（失敗しても継続させることで、既存管理下にある場合に対応）
           terraform import -lock=false -var-file=$TARGET_VARS \
-            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported"
+            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported or not needed"
 
       - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
@@ -75,7 +80,8 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform plan -lock=false -var-file=$VAR_FILE
+          # -input=false を追加して対話入力を遮断し、終了コードを安定させる
+          terraform plan -lock=false -var-file=$VAR_FILE -input=false
 
   # ==========================================
   # 2. 適用と Ansible デプロイ (Apply & Ansible Deploy)
@@ -98,7 +104,7 @@ jobs:
 
       - name: Terraform 初期化
         working-directory: ./my-project/terraform
-        run: terraform init
+        run: terraform init -input=false
 
       - name: Terraform リソース適用
         working-directory: ./my-project/terraform
@@ -108,7 +114,7 @@ jobs:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform apply -var-file=$VAR_FILE -auto-approve
+          terraform apply -var-file=$VAR_FILE -auto-approve -input=false
 
       - name: Ansible 用 SSH キー配置
         run: |
@@ -123,11 +129,10 @@ jobs:
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 最新のIPを取得
+          # 適用後の最新IPを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # インベントリファイルのパースエラーを回避するため、--extra-vars で接続情報を注入
-          # ansible_user には secrets から取得した値を直接渡すことで、変数の齟齬を防止
+          # インベントリファイルの不確実性を排除し、コマンドラインから接続情報を強制注入
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$TF_VAR_admin_username" \
             -e "target_ip=$VM_IP" \
