@@ -1,7 +1,7 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # 手動実行（画像 Job #40 の形式に準拠）
+  workflow_dispatch: 
 
 permissions:
   contents: read
@@ -23,28 +23,22 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: バックエンド用ストレージの存在確認と作成
-        # ストレージアカウント作成時の競合やDeleting状態を考慮した待機ロジック
         run: |
-          echo "Checking 'rg-storage-state' status..."
-          for i in {1..20}; do
-            STATUS=$(az group show --name rg-storage-state --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
-            if [ "$STATUS" = "Deleting" ]; then
-              echo "Resource group is deleting... waiting 30s ($i/20)"
-              sleep 30
-            else
-              break
-            fi
-          done
+          STORAGE_NAME="sttfstate20260506yuta"
+          RG_NAME="rg-storage-state"
+          
+          # IDをその場で取得し、以降のステップで再利用
+          SUB_ID=$(az account show --query id -o tsv)
+          echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
-          STORAGE_EXISTS=$(az storage account list --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+          STORAGE_EXISTS=$(az storage account list --query "[?name=='$STORAGE_NAME'].name" -o tsv)
           if [ -z "$STORAGE_EXISTS" ]; then
-            az group create --name rg-storage-state --location japanwest
-            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
-            az storage container create --name tfstate --account-name sttfstate20260506yuta
+            az group create --name $RG_NAME --location japanwest
+            az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
+            az storage container create --name tfstate --account-name $STORAGE_NAME
           fi
 
       - name: Terraform State のリース解除
-        # 前回の実行失敗でロックが残っている場合に備えた処置
         run: |
           az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || echo "No lease to break"
 
@@ -56,7 +50,6 @@ jobs:
         run: terraform init
 
       - name: 既存リソースグループのインポート
-        # インフラの冪等性を守るため、既存のRGがある場合は確実に取り込む
         working-directory: ./my-project/terraform
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
@@ -65,14 +58,16 @@ jobs:
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC || true
-          terraform import -lock=false -var-file=$TARGET_VARS azurerm_resource_group.rg /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported"
+          
+          # 環境変数から取得したSUB_IDを確実に使用
+          terraform import -lock=false -var-file=$TARGET_VARS \
+            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported"
 
       - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
         run: terraform validate
 
       - name: Ansible 構文チェック
-        # 画像のステップに合わせて追加。早期失敗を実現
         working-directory: ./my-project/Ansible
         run: ansible-playbook site.yml --syntax-check
 
@@ -92,9 +87,7 @@ jobs:
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
     needs: terraform-plan
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
-    environment: ${{ (github.ref == 'refs/heads/main') && 'production' || 'development' }}
     steps:
       - name: コードのチェックアウト
         uses: actions/checkout@v4
@@ -112,7 +105,6 @@ jobs:
         run: terraform init
 
       - name: Terraform リソース適用
-        # 条件1：ここでVM（箱）を確実に作成
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
@@ -129,19 +121,17 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
 
       - name: Ansible プレイブックの実行
-        # 条件1・2：VMの準備完了を待つ site.yml を実行（箱と中身の分離）
         working-directory: ./my-project/Ansible
         env:
-          ANSIBLE_HOST_KEY_CHECKING: "False"
-          # site.yml の各サービスに渡される機密情報
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 最新のIPを取得
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          ADMIN_USER=$(cd ../terraform && terraform output -raw environment) # variables から取得
           
+          # インベントリファイルのパースエラーを回避するため、--extra-vars で接続情報を強制注入
           ansible-playbook -i inventory.ini site.yml \
+            --extra-vars "ansible_host=$VM_IP ansible_user=$TF_VAR_admin_username" \
             -e "target_ip=$VM_IP" \
             -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
             -e "mysql_password=$MYSQL_PASSWORD" \
