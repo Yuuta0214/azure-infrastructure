@@ -28,13 +28,11 @@ jobs:
           echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
       - name: バックエンド用ストレージの整合性確保
-        # 修正内容: ストレージアカウントの確認とコンテナの確認を分離し、確実にバックエンド環境を準備します
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           CONTAINER_NAME="tfstate"
           
-          # 1. ストレージアカウントの存在確認
           SA_EXISTS=$(az storage account show --name $STORAGE_NAME --resource-group $RG_NAME --query name -o tsv 2>/dev/null || echo "notfound")
 
           if [ "$SA_EXISTS" = "notfound" ]; then
@@ -43,10 +41,8 @@ jobs:
             az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
           fi
 
-          # 2. コンテナの存在確認と作成 (これが 404 回避の鍵です)
-          # --account-name を指定することで、アカウントが存在する前提でコンテナを確実に作成します
-          echo "Checking container $CONTAINER_NAME..."
-          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || echo "Container may already exist or is being initialized."
+          echo "Ensuring container $CONTAINER_NAME exists..."
+          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || echo "Container already exists."
 
       - name: Terraform State のリース解除
         run: |
@@ -83,10 +79,10 @@ jobs:
 
       - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
+        # 修正：環境にあるSecretのみを参照し、存在しないSSH_PUBLIC_KEYを削除
         env:
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform plan -lock=false -var-file=$VAR_FILE -input=false
@@ -116,14 +112,16 @@ jobs:
 
       - name: Terraform リソース適用
         working-directory: ./my-project/terraform
+        # 修正：ここからもSSH_PUBLIC_KEYの参照を削除
         env:
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform apply -var-file=$VAR_FILE -auto-approve -input=false
 
+      # 注意：SSH_PRIVATE_KEYもSecretにないため、このステップが失敗する可能性があります。
+      # 必要に応じてリポジトリ側で追加、またはこのステップを削除する必要がありますが、現状はルールの通りフルコードを維持します。
       - name: Ansible 用 SSH キー配置
         run: |
           mkdir -p ~/.ssh
@@ -135,7 +133,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
