@@ -1,13 +1,12 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # 手動実行
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  # --- 1. 検証ジョブ ---
   terraform-plan:
     name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
@@ -22,7 +21,7 @@ jobs:
 
       - name: バックエンド用ストレージの存在確認と作成
         run: |
-          # 存在すれば0、存在しなければ非0を返すshowコマンドで確実に分岐
+          # 終了コードで確実に判定。az storage account show を使用
           if ! az storage account show --name sttfstate20260506yuta --resource-group rg-storage-state --subscription "0f273017-b259-421d-894c-ae7906f901c8" >/dev/null 2>&1; then
             echo "ストレージアカウントが見つかりません。新規作成を開始します..."
             az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
@@ -37,7 +36,7 @@ jobs:
           az storage blob lease break \
             --blob-name terraform.tfstate \
             --container-name tfstate \
-            --account-name sttfstate20260506yuta || echo "解除すべきリースはありません"
+            --account-name sttfstate20260506yuta || echo "解除不要"
 
       - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v3
@@ -59,7 +58,7 @@ jobs:
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC
           terraform import -lock=false -var-file=$TARGET_VARS \
-          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "既に管理下です"
+          azurerm_resource_group.rg /subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/$TARGET_RG || echo "管理済み"
 
       - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
@@ -81,15 +80,11 @@ jobs:
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform plan -lock=false -var-file=$VAR_FILE
 
-  # --- 2. デプロイジョブ ---
   terraform-apply:
-    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
+    name: '2. 適用と Ansible デプロイ'
     needs: terraform-plan
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
-    environment: 
-      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'test' }}
-    
     steps:
       - name: コードのチェックアウト
         uses: actions/checkout@v4
@@ -124,10 +119,11 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          # 【重要】廃止された STDOUT_CALLBACK の代わりに最新の形式を指定
+          ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
         run: |
           if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          ANSIBLE_STDOUT_CALLBACK=yaml \
           ansible-playbook -i inventory.ini site.yml \
             -e "target_ip=$VM_IP" \
             -e "admin_username=$TF_VAR_admin_username" \
