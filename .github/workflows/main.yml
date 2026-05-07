@@ -134,6 +134,9 @@ jobs:
           
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
+          # 【修正】Ansible実行前にaptのロックが解除されるまで待機するアドホックコマンドを実行
+          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done" --become
+
           # 引数を明示的に渡し、環境に依存しない実行を担保
           ansible-playbook -i inventory.ini site.yml \
             -e "target_ip=$VM_IP" \
