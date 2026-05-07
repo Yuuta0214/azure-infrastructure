@@ -1,13 +1,21 @@
-# 検証環境用パラメーター
+# ==========================================
+# 検証環境用パラメーター (env-test.tfvars)
 # ==========================================
 env          = "test"
 
-# 【修正】"storage-state" から "web-test" に戻します
-# これにより、インフラは「rg-web-test」という専用の箱に作成されます
-project_name = "web-test" 
+# プロジェクト名は本番と統一します。
+project_name = "web-project" 
 
-location     = "Japan West"
+# Azureの内部名（スペースなし小文字）を使用
+location     = "japanwest"
 
-# 【重要】B1s/B2sの在庫切れを回避するため、Standard_B2ms を指定
-vm_size      = "Standard_D2s_v3"
+# 検証環境のベストプラクティス:
+# コストを抑えつつ、B1s/B2sの在庫切れエラーを回避しやすいサイズを指定
+vm_size      = "Standard_B2ms"
+
+# ==========================================
+# ※ セキュリティベストプラクティス ※
+# admin_password や ssh_public_key はここには記載せず、
+# GitHub Actions の Secrets に登録し、実行時に環境変数
+# (TF_VAR_admin_password 等) として注入してください。
 # ==========================================

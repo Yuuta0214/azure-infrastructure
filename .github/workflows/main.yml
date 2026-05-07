@@ -7,109 +7,59 @@ permissions:
   contents: read
 
 jobs:
-  # --- 1. 検証ジョブ ---
-  terraform-plan:
-    name: '1. 検証と計画 (Validation & Plan)'
+  terraform-setup:
+    name: 'Setup Environment'
     runs-on: ubuntu-latest
+    outputs:
+      state_file: ${{ steps.vars.outputs.state_file }}
+      var_file: ${{ steps.vars.outputs.var_file }}
+      environment: ${{ steps.vars.outputs.environment }}
     steps:
-      - name: コードのチェックアウト
-        uses: actions/checkout@v4
-
-      - name: Azure ログイン
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: バックエンド用ストレージの安定化待機と作成
+      - id: vars
         run: |
-          echo "Checking 'rg-storage-state' status..."
-          for i in {1..20}; do
-            STATUS=$(az group show --name rg-storage-state --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
-            if [ "$STATUS" = "Deleting" ]; then
-              echo "Resource group is deleting... waiting 30s ($i/20)"
-              sleep 30
-            else
-              break
-            fi
-          done
-
-          STORAGE_EXISTS=$(az storage account list --subscription "0f273017-b259-421d-894c-ae7906f901c8" --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
-          if [ -z "$STORAGE_EXISTS" ]; then
-            az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
-            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --subscription "0f273017-b259-421d-894c-ae7906f901c8"
-            az storage container create --name tfstate --account-name sttfstate20260506yuta --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "state_file=prod.tfstate" >> $GITHUB_OUTPUT
+            echo "var_file=env-prod.tfvars" >> $GITHUB_OUTPUT
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "state_file=test.tfstate" >> $GITHUB_OUTPUT
+            echo "var_file=env-test.tfvars" >> $GITHUB_OUTPUT
+            echo "environment=development" >> $GITHUB_OUTPUT
           fi
 
-      - name: Terraform State のリース解除
-        run: |
-          az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || echo "No lease to break"
-
-      - name: Terraform セットアップ
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform 初期化
-        working-directory: ./my-project/terraform
-        run: terraform init
-
-      - name: Terraform 実行計画の作成
-        working-directory: ./my-project/terraform
-        env:
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-        run: |
-          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform plan -lock=false -var-file=$VAR_FILE
-
-  # --- 2. デプロイジョブ ---
   terraform-apply:
-    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    needs: terraform-plan
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
+    name: 'Apply & Ansible Deploy'
+    needs: terraform-setup
+    environment: ${{ needs.terraform-setup.outputs.environment }}
     runs-on: ubuntu-latest
-    
-    # 【必達】承認画面の環境名を動的に切り替え
-    environment: ${{ (github.ref == 'refs/heads/main') && 'production' || 'development' }}
-    
     steps:
-      - name: コードのチェックアウト
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Azure ログイン
-        uses: azure/login@v2
+      - uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Terraform セットアップ
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform 初期化
-        working-directory: ./my-project/terraform
-        run: terraform init
-
-      - name: Terraform リソース適用
+      - name: Terraform Init & Apply
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform apply -var-file=$VAR_FILE -auto-approve
+          terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
+          terraform apply -var-file=${{ needs.terraform-setup.outputs.var_file }} -auto-approve
 
-      - name: SSH ポート開放待ち
-        run: sleep 20
-
-      - name: Ansible プレイブックの実行
+      - name: Ansible Deploy
         working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-          ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
         run: |
-          if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          ansible-playbook -i inventory.ini site.yml \
-            -e "target_ip=$VM_IP" \
-            -e "admin_username=$TF_VAR_admin_username" \
-            -e "ansible_password=$ANSIBLE_PASSWORD"
-          if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
+          
+          # インベントリファイルを使わず、実行時に直接IPを指定する（これが最も失敗しない方法です）
+          ansible-playbook -i "${VM_IP}," \
+            -u ${{ secrets.TF_VAR_admin_username }} \
+            -e "ansible_password=${{ secrets.TF_VAR_admin_password }}" \
+            -e "ansible_python_interpreter=/usr/bin/python3" \
+            site.yml

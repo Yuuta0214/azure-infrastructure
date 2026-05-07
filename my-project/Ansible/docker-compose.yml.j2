@@ -1,48 +1,46 @@
-# ==========================================
-# Docker Compose 構成定義 (Jinja2 Template)
-# ==========================================
+version: '3.8'
+
 services:
-  # 1. DB層 (MySQL)
+  # 1. DB層: MySQL
   db:
     image: mysql:8.0
-    restart: always
+    restart: unless-stopped # Alwaysより安全：手動停止時は再起動しない
     environment:
-      # 【修正】Ansible 変数から注入。デフォルト値を設定しつつ秘匿性を確保します
-      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password | default('password123') }}"
-      MYSQL_DATABASE: "{{ mysql_db_name | default('myapp_db') }}"
+      # ※機密情報は Ansible 経由で vault を使って渡すのがベスト
+      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+      MYSQL_DATABASE: "{{ mysql_db_name }}"
     volumes:
       - db_data:/var/lib/mysql
     networks:
       - backend-nw
 
-  # 2. App層 (現在は Nginx ですが、将来のアプリ配置用)
+  # 2. App/Web層: 統合してシンプル化
+  # 本来はアプリ(App)とWebサーバー(Nginx)は分離すべきですが、
+  # 構成がシンプルな場合は、1つのコンテナに集約するか、App用コンテナを用意します。
   app:
-    image: nginx:latest
-    restart: always
+    image: nginx:stable-alpine # 軽量かつ安定したイメージに変更
+    restart: unless-stopped
+    ports:
+      - "80:80" # VMのポート80をコンテナの80にマッピング
     depends_on:
       - db
     networks:
       - frontend-nw
       - backend-nw
-
-  # 3. Web層 (外部からの受付窓口)
-  web:
-    image: nginx:latest
-    restart: always
-    ports:
-      - "80:80"
-    depends_on:
-      - app
-    networks:
-      - frontend-nw
+    volumes:
+      # 必要に応じて設定ファイルをマウントする設定を追加しておくと便利です
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
 
 # --- ネットワーク定義 ---
 networks:
+  # フロントエンドからの通信を受けるネットワーク
   frontend-nw:
     driver: bridge
+  # DBとの通信を保護するネットワーク
   backend-nw:
     driver: bridge
 
 # --- ボリューム定義 ---
 volumes:
   db_data:
+    driver: local

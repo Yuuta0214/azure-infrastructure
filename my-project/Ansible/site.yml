@@ -2,41 +2,48 @@
 - name: Full VM Provisioning and Container Deployment
   hosts: azure_vms
   become: yes
-  gather_facts: no
-
+  # 接続直後に facts を収集しないと、条件分岐などがうまく動作しないため true に戻します
+  gather_facts: yes
+  
   tasks:
+    # 1. 接続が確立するまで待機（AnsibleがSSH接続を試みるための準備）
+    - name: Wait for SSH connection
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    # 2. bootstrap.sh が完了するまで待機
     - name: Wait until bootstrap.sh is 100% finished
       wait_for:
         path: /var/tmp/bootstrap_complete
         state: present
-        timeout: 600
+        timeout: 300
 
-    # --- 【最重要：必達】壊れたaptキャッシュを物理的に削除して再構築 ---
-    - name: Clean broken apt cache and force update (IPv4)
-      shell: |
-        rm -rf /var/lib/apt/lists/*
-        apt-get clean
-        apt-get -o Acquire::ForceIPv4=true update -y
-      register: apt_clean_res
-      until: apt_clean_res is success
-      retries: 5
-      delay: 10
+    # 3. パッケージシステムのロックが解放されるのを待機
+    - name: Ensure apt lock is released
+      shell: "while fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done"
+      changed_when: false
 
-    - name: Gathering Facts
-      setup:
-
-    - name: Set timezone
-      timezone:
-        name: "Asia/Tokyo"
-
+    # 4. パッケージインストール
     - name: Update apt and install base packages
       apt:
-        name: [curl, gnupg, ca-certificates, chrony]
+        name: 
+          - curl
+          - gnupg
+          - ca-certificates
+          - chrony
+          - python3-pip
         state: present
-        update_cache: no # 上で更新済みのため
+        update_cache: yes
+        cache_valid_time: 3600
       register: apt_res
       until: apt_res is success
       retries: 5
       delay: 10
 
-    # ... (以降の Docker インストールタスクは既存のロジックを維持)
+    # 5. タイムゾーン設定
+    - name: Set timezone
+      timezone:
+        name: "Asia/Tokyo"
+
+    # ... この後に Docker のリポジトリ追加・インストールタスクを続けてください
