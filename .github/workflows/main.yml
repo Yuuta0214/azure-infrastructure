@@ -47,7 +47,8 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init & Plan
-        working-directory: ./terraform
+        # 【修正】実際のフォルダ構成 my-project/terraform に合わせました
+        working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
@@ -61,7 +62,8 @@ jobs:
   terraform-apply:
     name: 'Apply & Ansible Deploy'
     needs: [terraform-setup, terraform-plan]
-    # 【安全設計】GitHubのSettings > Environments で "production" に "Required reviewers" を設定してください
+    # 【安全設計】GitHubのSettings > Environments で "production" または "development" を作成し
+    # 必要に応じて "Required reviewers" を設定してください
     environment: ${{ needs.terraform-setup.outputs.environment }}
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +76,8 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init & Apply
-        working-directory: ./terraform
+        # 【修正】実際のフォルダ構成 my-project/terraform に合わせました
+        working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
@@ -88,7 +91,8 @@ jobs:
           sudo apt-get install -y ansible
 
       - name: Ansible Deploy
-        working-directory: ./ansible
+        # 【修正】実際のフォルダ構成 my-project/Ansible に合わせました（Aは大文字）
+        working-directory: ./my-project/Ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           # SSH秘密鍵を一時ファイルとして書き出し
@@ -99,7 +103,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # TerraformからIPを取得（プライベートIPまたはパブリックIP）
+          # TerraformからIPを取得（作業ディレクトリがmy-project/Ansibleなので、一階層上がってmy-project/terraformへ移動）
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
           # 作成した inventory.ini を活用し、IPを動的に渡して実行
