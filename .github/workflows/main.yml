@@ -7,6 +7,7 @@ permissions:
   contents: read
 
 jobs:
+  # --- 1. 検証ジョブ ---
   terraform-plan:
     name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
@@ -19,13 +20,28 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: バックエンド用ストレージの存在確認と作成
+      - name: バックエンド用ストレージの安定化待機と作成
         run: |
+          # 削除中の場合は完了するまで待機する（最大10分）
+          echo "Checking 'rg-storage-state' status..."
+          for i in {1..20}; do
+            STATUS=$(az group show --name rg-storage-state --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
+            if [ "$STATUS" = "Deleting" ]; then
+              echo "Resource group is deleting... waiting 30s ($i/20)"
+              sleep 30
+            else
+              break
+            fi
+          done
+
           STORAGE_EXISTS=$(az storage account list --subscription "0f273017-b259-421d-894c-ae7906f901c8" --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
           if [ -z "$STORAGE_EXISTS" ]; then
+            echo "Creating storage account..."
             az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
             az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --subscription "0f273017-b259-421d-894c-ae7906f901c8"
             az storage container create --name tfstate --account-name sttfstate20260506yuta --subscription "0f273017-b259-421d-894c-ae7906f901c8"
+          else
+            echo "Storage account already exists."
           fi
 
       - name: Terraform State のリース解除
@@ -49,14 +65,14 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
         run: |
-          # 以前の判定ロジックに戻し、確実に実行計画を作成
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform plan -lock=false -var-file=$VAR_FILE
 
+  # --- 2. デプロイジョブ ---
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
     needs: terraform-plan
-    # featureブランチでもボタンが出るよう制限を解除
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
     environment: production
     
@@ -94,8 +110,13 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          # 最新仕様のコールバック設定
+          ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
         run: |
           if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          ansible-playbook -i inventory.ini site.yml -e "target_ip=$VM_IP" -e "admin_username=$TF_VAR_admin_username" -e "ansible_password=$ANSIBLE_PASSWORD"
+          ansible-playbook -i inventory.ini site.yml \
+            -e "target_ip=$VM_IP" \
+            -e "admin_username=$TF_VAR_admin_username" \
+            -e "ansible_password=$ANSIBLE_PASSWORD"
           if [ -f ansible.cfg.tmp ]; then mv ansible.cfg.tmp ansible.cfg; fi
