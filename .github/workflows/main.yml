@@ -133,8 +133,8 @@ jobs:
           
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # 【修正】aptのロック解除待機に加え、OS側のパッケージマネージャーを強制的に安定させるためのリトライ付きUpdateを実行
-          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done && sudo apt-get update --fix-missing" --become
+          # 【重要修正】OS側の自動更新サービスを強制停止させ、すべてのaptロックを解放させるコマンドを実行
+          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "sudo systemctl stop apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer && sudo killall apt apt-get fuser 2>/dev/null || true && while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 5; done" --become
 
           # 引数を明示的に渡し、環境に依存しない実行を担保
           ansible-playbook -i inventory.ini site.yml \
