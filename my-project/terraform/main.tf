@@ -1,17 +1,15 @@
 # ==========================================
 # 3. 共通変数の定義 (Locals)
-# 命名規則の統一と、運用タグの動的生成
+# ここに全ての共通定義を集約し、他のファイル（compute.tf等）からは削除します
 # ==========================================
 locals {
-  # リソース名のプレフィックス (例: web-test / web-prod)
+  # リソース名のプレフィックス (例: web-test)
   resource_prefix = "${var.project_name}-${var.environment}"
 
-  # 実行時の日付を自動取得 (例: 2026-05-07)
-  # これにより .tfvars への手書きが不要になります
+  # 【解決策】実行時の日付を動的に取得。人間が書き換える必要はありません。
   current_date = formatdate("YYYY-MM-DD", timestamp())
 
-  # 共通タグの統合管理
-  # tfvars で定義した tags と、システムで自動付与するタグをマージします
+  # 運用管理タグの統合
   common_tags = merge(var.tags, {
     Environment = var.environment
     Project     = var.project_name
@@ -22,22 +20,17 @@ locals {
 
 # ==========================================
 # 4. リソースグループの作成
-# Azure基盤の論理的な境界
 # ==========================================
 resource "azurerm_resource_group" "rg" {
-  # 命名規則: rg-web-test または rg-web-prod
   name     = "rg-${local.resource_prefix}"
-  
-  # リージョン設定 (tfvars の値を反映)
   location = var.location
+  tags     = local.common_tags
 
-  # 共通タグの適用
-  tags = local.common_tags
-
-  # 【ベストプラクティス：ライフサイクル管理】
   lifecycle {
-    # 運用上のノイズ（日付更新による差分）を完全に排除します
-    # 初回作成時のタグを維持し、翌日以降の apply で CreatedDate が上書きされるのを防ぎます
+    prevent_destroy = false
+
+    # 初回作成時の CreatedDate を Azure 側に保持し、
+    # 二回目以降の実行（明日以降）で「日付が変わった」という差分を出さないようにします。
     ignore_changes = [
       tags["CreatedDate"]
     ]

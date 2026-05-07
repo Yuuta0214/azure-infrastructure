@@ -1,20 +1,4 @@
 # ==========================================
-# 0. 共通ローカル変数の定義 (運用・保守用)
-# ==========================================
-locals {
-  # リソース名の接頭辞 (例: web-test)
-  resource_prefix = "${var.project_name}-${var.environment}"
-
-  # 動的なタグ生成: 実行時の日付を取得
-  current_date = formatdate("YYYY-MM-DD", timestamp())
-
-  # tfvarsのタグに動的な CreatedDate を結合
-  common_tags = merge(var.tags, {
-    CreatedDate = local.current_date
-  })
-}
-
-# ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
@@ -28,9 +12,10 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
   }
 
+  # main.tf で定義された local.common_tags を参照
   tags = local.common_tags
 
-  # 日付タグが毎回更新されないよう、作成時のみの付与とする
+  # 運用保守: 日付タグが毎回更新されないよう、作成時のみの付与とする
   lifecycle {
     ignore_changes = [
       tags["CreatedDate"],
@@ -57,7 +42,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # パスワード認証を有効化
+  # セキュリティ設計: パスワード認証を有効化
   disable_password_authentication = false
   admin_password                  = var.admin_password
 
@@ -88,11 +73,12 @@ resource "azurerm_linux_virtual_machine" "vm" {
     type = "SystemAssigned"
   }
 
+  # main.tf で定義された local.common_tags を参照
   tags = local.common_tags
 
   lifecycle {
     ignore_changes = [
-      admin_password,    # パスワード変更による再起動防止
+      admin_password,    # パスワード変更による意図しない再起動を防止
       tags["CreatedDate"], # 翌日以降のデプロイで日付が更新されるのを防止
     ]
   }
