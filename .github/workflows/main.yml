@@ -14,6 +14,9 @@ jobs:
     name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
     steps:
+      - name: Set up job
+        uses: actions/checkout@v4 # 内部処理用
+
       - name: コードのチェックアウト
         uses: actions/checkout@v4
 
@@ -22,19 +25,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: サブスクリプションIDの取得
-        run: |
-          SUB_ID=$(az account show --query id -o tsv)
-          echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
-
       - name: バックエンド用ストレージの存在確認と作成
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           CONTAINER_NAME="tfstate"
           
-          # 修正ポイント: 存在確認のループを止め、作成コマンドを直接実行（既存時はエラーを無視）
-          # これにより、数分間のタイムアウト待ちが発生しなくなります
+          # 余計な確認ロジックを排除し、直接実行で高速化
           az group create --name $RG_NAME --location japanwest --output none
           az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --output none || true
           az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login --output none || true
@@ -63,9 +60,9 @@ jobs:
           fi
           az group create --name $TARGET_RG --location $TARGET_LOC || true
           
-          # -input=false を追加して、不測のプロンプト待機を完全に封鎖
+          # サブスクリプションIDをコマンド内で動的に取得し、対話待ちを封鎖
           terraform import -input=false -lock=false -var-file=$TARGET_VARS \
-            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || true
+            azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$TARGET_RG || true
 
       - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
