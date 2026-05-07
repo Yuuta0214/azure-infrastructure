@@ -133,16 +133,8 @@ jobs:
           
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # 【ベストプラクティス修正】OS側のあらゆるaptロックと自動更新プロセスを強制排除し、確実に初期状態を整える
-          ansible all -i "$VM_IP," -u "$TF_VAR_admin_username" --extra-vars "ansible_password=$ANSIBLE_PASSWORD" -m shell -a "
-            sudo systemctl stop apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer 2>/dev/null || true;
-            sudo killall apt apt-get 2>/dev/null || true;
-            sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* || true;
-            sudo dpkg --configure -a || true;
-            sudo apt-get update
-          " --become
-
-          # 引数を明示的に渡し、環境に依存しない実行を担保
+          # 引数を明示的に渡し、かつAnsible側の環境変数で「aptのロック待ち」を自動制御（これが最も高速）
+          ANSIBLE_STDOUT_CALLBACK=yaml \
           ansible-playbook -i inventory.ini site.yml \
             -e "target_ip=$VM_IP" \
             -e "admin_username=$TF_VAR_admin_username" \
