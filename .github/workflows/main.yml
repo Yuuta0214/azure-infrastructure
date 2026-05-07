@@ -28,22 +28,25 @@ jobs:
           echo "SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
 
       - name: バックエンド用ストレージの整合性確保
-        # ベストプラクティス: 重複作成を避けるため、まず存在を確認し、存在しない場合のみ作成フェーズへ移行
+        # 修正内容: ストレージアカウントの確認とコンテナの確認を分離し、確実にバックエンド環境を準備します
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
+          CONTAINER_NAME="tfstate"
           
-          # 存在確認 (show コマンドを使用。存在しない場合はエラーを返すが || true で継続)
-          EXISTS=$(az storage account show --name $STORAGE_NAME --resource-group $RG_NAME --query name -o tsv 2>/dev/null || echo "notfound")
+          # 1. ストレージアカウントの存在確認
+          SA_EXISTS=$(az storage account show --name $STORAGE_NAME --resource-group $RG_NAME --query name -o tsv 2>/dev/null || echo "notfound")
 
-          if [ "$EXISTS" = "notfound" ]; then
-            echo "Storage account $STORAGE_NAME not found. Proceeding with creation..."
+          if [ "$SA_EXISTS" = "notfound" ]; then
+            echo "Storage account $STORAGE_NAME not found. Creating..."
             az group create --name $RG_NAME --location japanwest
             az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
-            az storage container create --name tfstate --account-name $STORAGE_NAME
-          else
-            echo "Storage account $STORAGE_NAME already exists and is ready for use."
           fi
+
+          # 2. コンテナの存在確認と作成 (これが 404 回避の鍵です)
+          # --account-name を指定することで、アカウントが存在する前提でコンテナを確実に作成します
+          echo "Checking container $CONTAINER_NAME..."
+          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || echo "Container may already exist or is being initialized."
 
       - name: Terraform State のリース解除
         run: |
@@ -65,12 +68,10 @@ jobs:
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
           
-          # リソースグループの冪等な確保
           az group create --name $TARGET_RG --location $TARGET_LOC || true
           
-          # インポート（既に管理下にある場合はスキップ）
           terraform import -lock=false -var-file=$TARGET_VARS \
-            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Resource group already under Terraform management."
+            azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Resource group already under management."
 
       - name: Terraform 構文チェック
         working-directory: ./my-project/terraform
