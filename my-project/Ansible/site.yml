@@ -2,127 +2,41 @@
 - name: Full VM Provisioning and Container Deployment
   hosts: azure_vms
   become: yes
-  gather_facts: no
-
-  vars:
-    target_timezone: "Asia/Tokyo"
-    required_packages:
-      - curl
-      - gnupg
-      - ca-certificates
-      - chrony
+  gather_facts: no # 完了前に情報を取ろうとして衝突するのを防ぐ
 
   tasks:
-    # --- 0. OSロックの強制解除 ---
-    - name: Force release apt/dpkg locks
-      shell: |
-        systemctl stop apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer 2>/dev/null || true
-        killall apt apt-get 2>/dev/null || true
-        rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* 2>/dev/null || true
-        dpkg --configure -a
-      changed_when: false
-
-    - name: Gathering Facts
-      setup:
-
-    # --- 1. 同期・初期確認 ---
-    - name: Wait for infrastructure bootstrap to complete
+    # --- 【最重要：必達】bootstrap.sh の完了を物理的に待つ ---
+    - name: Wait until bootstrap.sh is 100% finished
       wait_for:
         path: /var/tmp/bootstrap_complete
         state: present
-        timeout: 300
+        timeout: 600 # 最大10分待機
+      delegate_to: "{{ inventory_hostname }}"
 
-    - name: Get remote user home directory
-      shell: "getent passwd {{ ansible_user }} | cut -d: -f6"
-      register: user_home
-      changed_when: false
+    # 完了後に初めてOSの情報を収集する
+    - name: Gathering Facts
+      setup:
 
-    # --- 2. OSレイヤーの設定 ---
+    # --- 以降、安全に実行されるタスク ---
     - name: Set timezone
       timezone:
-        name: "{{ target_timezone }}"
+        name: "Asia/Tokyo"
 
-    - name: Install base system packages
+    - name: Update apt and install base packages
       apt:
-        name: "{{ required_packages }}"
+        name: [curl, gnupg, ca-certificates, chrony]
         state: present
         update_cache: yes
-      register: base_install
-      until: base_install is success
-      retries: 10
+      register: apt_res
+      until: apt_res is success
+      retries: 5
       delay: 10
 
-    - name: Ensure chrony (NTP) is running
-      service:
-        name: chrony
-        state: started
-        enabled: yes
-
-    # --- 3. Dockerインストール ---
-    - name: Add Docker GPG apt Key
-      apt_key:
-        url: https://download.docker.com/linux/debian/gpg
-        state: present
-        keyring: /etc/apt/keyrings/docker.gpg
-
-    - name: Add Docker Repository
-      apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
-        state: present
-        filename: docker
-
-    - name: Install Docker Engine and Plugins
-      apt:
-        pkg:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
-        state: present
-        update_cache: yes
-      register: docker_install
-      until: docker_install is success
-      retries: 10
+    - name: Install Docker (IPv4 Force)
+      shell: |
+        apt-get -o Acquire::ForceIPv4=true update -y
+        apt-get -o Acquire::ForceIPv4=true install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+      register: docker_res
+      until: docker_res is success
+      retries: 5
       delay: 10
-
-    - name: Ensure Docker service is started and enabled
-      service:
-        name: docker
-        state: started
-        enabled: yes
-
-    # --- 4. アプリケーションデプロイ ---
-    - name: Create app directory
-      file:
-        path: "{{ user_home.stdout }}/app"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: '0755'
-
-    - name: Deploy docker-compose.yml from template
-      template:
-        src: docker-compose.yml.j2
-        dest: "{{ user_home.stdout }}/app/docker-compose.yml"
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: '0644'
-
-    - name: Start containers with Docker Compose
-      command:
-        cmd: "docker compose up -d"
-        chdir: "{{ user_home.stdout }}/app"
-      register: compose_output
-      changed_when: "'Started' in compose_output.stdout or 'Created' in compose_output.stdout or 'Running' in compose_output.stdout"
-
-    - name: Check container status
-      command:
-        cmd: "docker compose ps"
-        chdir: "{{ user_home.stdout }}/app"
-      register: ps_output
-      changed_when: false
-
-    - name: Show container status
-      debug:
-        msg: "{{ ps_output.stdout_lines }}"
