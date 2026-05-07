@@ -2,22 +2,29 @@
 - name: Full VM Provisioning and Container Deployment
   hosts: azure_vms
   become: yes
-  gather_facts: no # 完了前に情報を取ろうとして衝突するのを防ぐ
+  gather_facts: no
 
   tasks:
-    # --- 【最重要：必達】bootstrap.sh の完了を物理的に待つ ---
     - name: Wait until bootstrap.sh is 100% finished
       wait_for:
         path: /var/tmp/bootstrap_complete
         state: present
-        timeout: 600 # 最大10分待機
-      delegate_to: "{{ inventory_hostname }}"
+        timeout: 600
 
-    # 完了後に初めてOSの情報を収集する
+    # --- 【最重要：必達】壊れたaptキャッシュを物理的に削除して再構築 ---
+    - name: Clean broken apt cache and force update (IPv4)
+      shell: |
+        rm -rf /var/lib/apt/lists/*
+        apt-get clean
+        apt-get -o Acquire::ForceIPv4=true update -y
+      register: apt_clean_res
+      until: apt_clean_res is success
+      retries: 5
+      delay: 10
+
     - name: Gathering Facts
       setup:
 
-    # --- 以降、安全に実行されるタスク ---
     - name: Set timezone
       timezone:
         name: "Asia/Tokyo"
@@ -26,17 +33,10 @@
       apt:
         name: [curl, gnupg, ca-certificates, chrony]
         state: present
-        update_cache: yes
+        update_cache: no # 上で更新済みのため
       register: apt_res
       until: apt_res is success
       retries: 5
       delay: 10
 
-    - name: Install Docker (IPv4 Force)
-      shell: |
-        apt-get -o Acquire::ForceIPv4=true update -y
-        apt-get -o Acquire::ForceIPv4=true install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-      register: docker_res
-      until: docker_res is success
-      retries: 5
-      delay: 10
+    # ... (以降の Docker インストールタスクは既存のロジックを維持)

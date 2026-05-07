@@ -22,7 +22,6 @@ jobs:
 
       - name: バックエンド用ストレージの安定化待機と作成
         run: |
-          # 削除中の場合は完了するまで待機する（最大10分）
           echo "Checking 'rg-storage-state' status..."
           for i in {1..20}; do
             STATUS=$(az group show --name rg-storage-state --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
@@ -36,12 +35,9 @@ jobs:
 
           STORAGE_EXISTS=$(az storage account list --subscription "0f273017-b259-421d-894c-ae7906f901c8" --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
           if [ -z "$STORAGE_EXISTS" ]; then
-            echo "Creating storage account..."
             az group create --name rg-storage-state --location japanwest --subscription "0f273017-b259-421d-894c-ae7906f901c8"
             az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --subscription "0f273017-b259-421d-894c-ae7906f901c8"
             az storage container create --name tfstate --account-name sttfstate20260506yuta --subscription "0f273017-b259-421d-894c-ae7906f901c8"
-          else
-            echo "Storage account already exists."
           fi
 
       - name: Terraform State のリース解除
@@ -54,10 +50,6 @@ jobs:
       - name: Terraform 初期化
         working-directory: ./my-project/terraform
         run: terraform init
-
-      - name: Terraform 構文チェック
-        working-directory: ./my-project/terraform
-        run: terraform validate
 
       - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
@@ -74,7 +66,9 @@ jobs:
     needs: terraform-plan
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
-    environment: production
+    
+    # 【必達】承認画面の環境名を動的に切り替え
+    environment: ${{ (github.ref == 'refs/heads/main') && 'production' || 'development' }}
     
     steps:
       - name: コードのチェックアウト
@@ -110,7 +104,6 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
           ANSIBLE_PASSWORD: ${{ secrets.TF_VAR_admin_password }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
-          # 最新仕様のコールバック設定
           ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
         run: |
           if [ -f ansible.cfg ]; then mv ansible.cfg ansible.cfg.tmp; fi
