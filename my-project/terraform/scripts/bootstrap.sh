@@ -1,33 +1,27 @@
 #!/bin/bash
-# =================================================================
-# OS初期セットアップ・スクリプト（Ansible接続確保版）
-# 役割：AnsibleがSSH経由で設定を開始できる最小限の環境を整える
-# =================================================================
 set -euo pipefail
 
-# ログ記録の設定
+# ログ記録
 exec > >(tee -a /var/log/user-data.log | logger -t user-data) 2>&1
 
-echo "*** [START] Bootstrap: Infrastructure Layer ***"
+echo "*** [START] Bootstrap ***"
 
-# 1. 競合回避：自動更新を停止（Ansibleに制御権を渡すため）
+# 1. 自動更新を停止
 systemctl stop unattended-upgrades || true
 systemctl disable unattended-upgrades || true
 
-# 2. パッケージマネージャの更新（Ansible用python3-aptの導入）
+# 2. パッケージマネージャの更新（ロック待ちオプション付与）
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y python3 python3-apt
+apt-get -o DPkg::Lock::Timeout=120 update -y
+apt-get -o DPkg::Lock::Timeout=120 install -y python3 python3-apt
 
-# 3. 管理ユーザーの権限設定（Sudoers）
-# Ansibleがパスワードなしで特権操作を行えるようにする
+# 3. 管理ユーザーのSudoers設定
 if [ -n "${admin_username}" ]; then
     echo "${admin_username} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${admin_username}"
     chmod 440 "/etc/sudoers.d/${admin_username}"
 fi
 
-# 4. 【重要】完了シグナルの発行
-# 「Ansibleが接続して良い状態になった」ことを明示する
+# 4. 完了シグナル
 echo "Infrastructure is ready" > /var/tmp/bootstrap_complete
 
-echo "*** [SUCCESS] Bootstrap: Ready for Ansible ***"
+echo "*** [SUCCESS] Bootstrap ***"

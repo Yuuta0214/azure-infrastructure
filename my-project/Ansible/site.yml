@@ -2,7 +2,6 @@
 - name: Full VM Provisioning and Container Deployment
   hosts: azure_vms
   become: yes
-  # 【重要】実行直後の自動的なFacts取得（apt参照を含む）による衝突を避けるため一度無効化
   gather_facts: no
 
   vars:
@@ -14,12 +13,13 @@
       - chrony
 
   tasks:
-    # --- 0. OSロック解除待機 (Gathering Facts前に実行) ---
-    - name: Wait for apt/dpkg lock to be released
+    # --- 0. OSロックの強制解除 ---
+    - name: Force release apt/dpkg locks
       shell: |
-        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; do
-          sleep 5
-        done
+        systemctl stop apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer 2>/dev/null || true
+        killall apt apt-get 2>/dev/null || true
+        rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock* 2>/dev/null || true
+        dpkg --configure -a
       changed_when: false
 
     - name: Gathering Facts
@@ -37,7 +37,7 @@
       register: user_home
       changed_when: false
 
-    # --- 2. OSレイヤーの設定 (システム基盤) ---
+    # --- 2. OSレイヤーの設定 ---
     - name: Set timezone
       timezone:
         name: "{{ target_timezone }}"
@@ -49,7 +49,7 @@
         update_cache: yes
       register: base_install
       until: base_install is success
-      retries: 10 # 5回から10回に強化し、より確実に
+      retries: 10
       delay: 10
 
     - name: Ensure chrony (NTP) is running
@@ -58,10 +58,10 @@
         state: started
         enabled: yes
 
-    # --- 3. Dockerインストール (ミドルウェア層) ---
+    # --- 3. Dockerインストール ---
     - name: Add Docker GPG apt Key
       apt_key:
-        url: https://download.docker.com/linux/debian/gpg # URLのタイポ（download.download.com）を修正
+        url: https://download.docker.com/linux/debian/gpg
         state: present
         keyring: /etc/apt/keyrings/docker.gpg
 
@@ -83,7 +83,7 @@
         update_cache: yes
       register: docker_install
       until: docker_install is success
-      retries: 10 # 5回から10回に強化
+      retries: 10
       delay: 10
 
     - name: Ensure Docker service is started and enabled
@@ -92,7 +92,7 @@
         state: started
         enabled: yes
 
-    # --- 4. アプリケーションデプロイ (コンテナ層) ---
+    # --- 4. アプリケーションデプロイ ---
     - name: Create app directory
       file:
         path: "{{ user_home.stdout }}/app"
