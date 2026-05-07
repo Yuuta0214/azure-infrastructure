@@ -32,21 +32,13 @@ jobs:
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           CONTAINER_NAME="tfstate"
-          
-          SA_EXISTS=$(az storage account show --name $STORAGE_NAME --resource-group $RG_NAME --query name -o tsv 2>/dev/null || echo "notfound")
-
-          if [ "$SA_EXISTS" = "notfound" ]; then
-            echo "Storage account $STORAGE_NAME not found. Creating..."
-            az group create --name $RG_NAME --location japanwest
-            az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
-          fi
-
-          echo "Ensuring container $CONTAINER_NAME exists..."
-          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || echo "Container already exists."
+          az group create --name $RG_NAME --location japanwest || true
+          az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS || true
+          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login || true
 
       - name: Terraform State のリース解除
         run: |
-          az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || echo "No lease to break"
+          az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || true
 
       - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v3
@@ -57,17 +49,18 @@ jobs:
 
       - name: 既存リソースグループのインポート
         working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             TARGET_RG="rg-web-project"; TARGET_VARS="env-prod.tfvars"; TARGET_LOC="japaneast"
           else
             TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
-          
           az group create --name $TARGET_RG --location $TARGET_LOC || true
-          
-          # 重複インポートによるエラーを確実に無視させるために || true を徹底
-          terraform import -lock=false -var-file=$TARGET_VARS \
+          # インポート失敗を許容しつつ、対話モードを完全にオフにする
+          terraform import -input=false -lock=false -var-file=$TARGET_VARS \
             azurerm_resource_group.rg /subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || true
 
       - name: Terraform 構文チェック
@@ -119,7 +112,6 @@ jobs:
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform apply -var-file=$VAR_FILE -auto-approve -input=false
 
-      # ※ Ansibileはパスワード認証でVMにアクセスするよう構成されている前提で継続します
       - name: Ansible プレイブックの実行
         working-directory: ./my-project/Ansible
         env:
@@ -129,7 +121,6 @@ jobs:
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
-          
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$TF_VAR_admin_username ansible_password=$TF_VAR_admin_password" \
             -e "target_ip=$VM_IP" \
