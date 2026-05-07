@@ -1,46 +1,66 @@
 version: '3.8'
 
 services:
+  # ------------------------------------------
   # 1. DB層: MySQL
+  # ------------------------------------------
   db:
     image: mysql:8.0
-    restart: unless-stopped # Alwaysより安全：手動停止時は再起動しない
+    container_name: mysql-db
+    restart: unless-stopped
     environment:
-      # ※機密情報は Ansible 経由で vault を使って渡すのがベスト
+      # Ansible Vault 等から渡される変数を使用
       MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
       MYSQL_DATABASE: "{{ mysql_db_name }}"
+      MYSQL_USER: "{{ mysql_user }}"
+      MYSQL_PASSWORD: "{{ mysql_password }}"
     volumes:
       - db_data:/var/lib/mysql
     networks:
       - backend-nw
+    # 【追加】ヘルスチェック：DBが起動完了したかを判定
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p{{ mysql_root_password }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # 2. App/Web層: 統合してシンプル化
-  # 本来はアプリ(App)とWebサーバー(Nginx)は分離すべきですが、
-  # 構成がシンプルな場合は、1つのコンテナに集約するか、App用コンテナを用意します。
-  app:
-    image: nginx:stable-alpine # 軽量かつ安定したイメージに変更
+  # ------------------------------------------
+  # 2. Web層: Nginx
+  # ------------------------------------------
+  web:
+    image: nginx:stable-alpine
+    container_name: nginx-web
     restart: unless-stopped
+    # 構成図の要件: ロードバランサー(8080) -> VM(80) -> コンテナ(80)
     ports:
-      - "80:80" # VMのポート80をコンテナの80にマッピング
+      - "80:80"
     depends_on:
-      - db
+      db:
+        condition: service_healthy # DBの準備ができてからNginxを起動
     networks:
       - frontend-nw
       - backend-nw
     volumes:
-      # 必要に応じて設定ファイルをマウントする設定を追加しておくと便利です
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # 設定ファイルとコンテンツの同期用
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html:/usr/share/nginx/html:ro
 
-# --- ネットワーク定義 ---
+# ==========================================
+# ネットワーク定義
+# ==========================================
 networks:
-  # フロントエンドからの通信を受けるネットワーク
+  # 外部トラフィック用
   frontend-nw:
     driver: bridge
-  # DBとの通信を保護するネットワーク
+  # DB通信用（Webコンテナからのみアクセス可能）
   backend-nw:
     driver: bridge
+    internal: true # 【修正】このネットワークを外部から完全に遮断
 
-# --- ボリューム定義 ---
+# ==========================================
+# ボリューム定義
+# ==========================================
 volumes:
   db_data:
     driver: local

@@ -1,9 +1,8 @@
 # ==========================================
-# 11. ネットワークインターフェース（NIC）の作成
+# 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
-  # 【修正】環境ごとに名前を分離
-  name                = "nic-${var.project_name}-${var.env}"
+  name                = "nic-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
@@ -13,11 +12,11 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
   }
 
-  tags = { Environment = var.env }
+  tags = local.common_tags
 }
 
 # ==========================================
-# 12. NICとALBバックエンドプールの紐付け（Web通信用）
+# 11. NICとALBバックエンドプールの紐付け
 # ==========================================
 resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
@@ -25,49 +24,34 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_as
   backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
 }
 
-# ==========================================
-# 12-1. NICとALB NATルールの紐付け（SSH接続用）
-# ==========================================
-resource "azurerm_network_interface_nat_rule_association" "nic_nat_assoc" {
-  network_interface_id  = azurerm_network_interface.nic.id
-  ip_configuration_name = "internal"
-  nat_rule_id           = azurerm_lb_nat_rule.ssh.id
-}
+# ※【重要】設計図に従い、LB経由のSSH NATルール紐付けは「Bastion利用」のため削除しました。
+# これにより、インターネットから直接22番ポートへの攻撃経路が完全に遮断されます。
 
 # ==========================================
-# 13. Linux 仮想マシン（VM）の作成
+# 12. Linux 仮想マシン（VM）の作成
 # ==========================================
 resource "azurerm_linux_virtual_machine" "vm" {
-  # 【修正】環境ごとに名前を分離
-  name                            = "vm-${var.project_name}-${var.env}"
+  name                            = "vm-${local.resource_prefix}"
   resource_group_name             = azurerm_resource_group.rg.name
   location                        = azurerm_resource_group.rg.location
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # パスワード設定
-  admin_password                  = var.admin_password
-  
-  # 【重要】SSHキーが指定されている場合は、セキュリティ向上のためパスワード認証を無効化する
-  disable_password_authentication = var.ssh_public_key != "" ? true : false
+  # セキュリティ強化: パスワード認証を原則無効化（SSHキー必須）
+  disable_password_authentication = true
 
-  # 【追加】SSH公開鍵認証の設定（OSセキュリティベストプラクティス）
-  dynamic "admin_ssh_key" {
-    for_each = var.ssh_public_key != "" ? [1] :[]
-    content {
-      username   = var.admin_username
-      public_key = var.ssh_public_key
-    }
+  admin_ssh_key {
+    username   = var.admin_username
+    public_key = var.ssh_public_key
   }
 
-  network_interface_ids =[
+  network_interface_ids = [
     azurerm_network_interface.nic.id,
   ]
 
   os_disk {
     caching              = "ReadWrite"
-    # 【修正】Standard_LRS（HDD）は非推奨。StandardSSD_LRS（SSD）に変更
-    storage_account_type = "StandardSSD_LRS"
+    storage_account_type = "StandardSSD_LRS" # パフォーマンスとコストのバランスが良いSSD
   }
 
   source_image_reference {
@@ -77,17 +61,17 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # 【修正】OS内部のホスト名にも環境名を付与
+  # プロビジョニング用スクリプトの流し込み
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
-    hostname       = "vm-${var.project_name}-${var.env}"
+    hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
   }))
 
-  # 冪等性を担保するため、再起動などで設定が飛ばないよう考慮
-  provision_vm_agent = true
-
-  tags = {
-    Environment = var.env
-    Project     = var.project_name
+  # 【ベストプラクティス】マネージド ID の有効化
+  # これにより、将来的にパスワードを使わず Azure Key Vault や ACR へアクセス可能になります
+  identity {
+    type = "SystemAssigned"
   }
+
+  tags = local.common_tags
 }

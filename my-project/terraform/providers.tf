@@ -2,28 +2,30 @@
 # 1. Terraform 本体設定
 # ==========================================
 terraform {
-  # Terraform自身の最低バージョンを指定（最新の機能とセキュリティを確保するため1.5.0以上を推奨）
-  required_version = ">= 1.5.0"
+  # 最新の機能（removedブロック等）とセキュリティのため、1.7.0以上を推奨
+  required_version = ">= 1.7.0"
 
-  # 使用する外部プログラム（Provider）の定義
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.0" # 3.x系の最新を使用。安定稼働のためマイナーバージョンまで固定するのも推奨されます
+      # 【修正】最新の v4.x 系を指定。
+      # v4では一部のリソースプロパティが整理され、パフォーマンスが向上しています。
+      version = "~> 4.0"
     }
   }
 
-  # Remote Backend の導入（Stateファイルの管理）
+  # Remote Backend (Stateファイルの管理)
   backend "azurerm" {
-    resource_group_name  = "rg-storage-state" 
+    # ここに記載する値は「State管理用」の既存リソースです
+    resource_group_name  = "rg-storage-state"
     storage_account_name = "sttfstate20260506yuta"
     container_name       = "tfstate"
     
-    # 【重要】環境（prod/test）ごとにStateを分けるためのベース名
-    # GitHub Actions側で `-backend-config="key=prod.terraform.tfstate"` のように動的に上書きすることを強く推奨します。
+    # 環境（prod/test）ごとにキーを分ける運用は非常に重要です
+    # GitHub Actions側で -backend-config="key=..." を指定する前提でベース名を定義
     key                  = "terraform.tfstate"
-    
-    # GitHub Actionsからのデプロイを想定し、OIDC認証を使用する設定（セキュリティベストプラクティス）
+
+    # OIDC認証の有効化
     use_oidc             = true
   }
 }
@@ -32,10 +34,25 @@ terraform {
 # 2. Azure Providerの動作設定
 # ==========================================
 provider "azurerm" {
-  features {
-    # リソースグループ削除時に中のリソースも強制削除するなどの挙動を制御できますが、基本は空でOKです
-  }
-
-  # GitHub Actions (OIDC) 経由での認証を明示的に有効化
+  # OIDC経由の認証を明示
   use_oidc = true
+
+  features {
+    # 【ベストプラクティス】
+    # リソースグループにリソースが含まれている場合の意図しない削除を防止
+    resource_group {
+      prevent_deletion_if_contains_resources = true
+    }
+
+    # 今後 Key Vault を導入した際、誤削除しても復元可能にする設定（セキュリティ上推奨）
+    key_vault {
+      purge_soft_delete_on_destroy    = false
+      recover_soft_deleted_key_vaults = true
+    }
+    
+    # VM削除時にOSディスクを自動削除するかどうかの制御
+    virtual_machine {
+      delete_os_disk_on_deletion = true
+    }
+  }
 }

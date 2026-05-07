@@ -2,21 +2,15 @@
 # 本番環境用パラメーター (env-prod.tfvars)
 # ==========================================
 env          = "prod"
+project_name = "web-project"
+location     = "japaneast" # 本番は主要リージョンである東日本
 
-# プロジェクト名は環境間で統一するのがベストプラクティスです。
-# ※実際のリソース名は main.tf 側で "${var.project_name}-${var.env}" のように組み立てます。
-project_name = "web-project" 
+# 本番環境: 安定したCPU/メモリ比率を持つDシリーズ
+# Docker上で複数のコンテナを動かす場合、2vCPU/8GBメモリのD2sはバランスが良いです
+vm_size      = "Standard_D2s_v3"
 
-# Azureの内部名（スペースなし小文字）を使用
-location     = "japaneast"
-
-# 本番環境のベストプラクティス: 
-# 安定したパフォーマンスを提供し、在庫も豊富な汎用インスタンス（Dシリーズ）を指定
-vm_size      = "Standard_D2s_v3" 
-
-# ==========================================
-# ※ セキュリティベストプラクティス ※
-# admin_password や ssh_public_key はここには記載せず、
-# GitHub Actions の Secrets に登録し、実行時に環境変数
-# (TF_VAR_admin_password 等) として注入してください。
-# ==========================================
+# 追加の管理タグが必要な場合はここに記述
+tags = {
+  BusinessUnit = "Production-Ops"
+  CostCenter   = "WEB-101"
+}

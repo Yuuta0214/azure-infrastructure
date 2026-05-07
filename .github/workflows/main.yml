@@ -1,12 +1,17 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手動実行
+  push:
+    branches: [ "main", "develop" ] # 開発ブランチとメインブランチの変更をトリガー
 
 permissions:
   contents: read
 
 jobs:
+  # ----------------------------------------------------------
+  # 1. 共通変数のセットアップ
+  # ----------------------------------------------------------
   terraform-setup:
     name: 'Setup Environment'
     runs-on: ubuntu-latest
@@ -27,9 +32,36 @@ jobs:
             echo "environment=development" >> $GITHUB_OUTPUT
           fi
 
+  # ----------------------------------------------------------
+  # 2. Terraform Plan (事前確認)
+  # ----------------------------------------------------------
+  terraform-plan:
+    name: 'Terraform Plan'
+    needs: terraform-setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Plan
+        working-directory: ./terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
+          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+        run: |
+          terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
+          terraform plan -var-file=${{ needs.terraform-setup.outputs.var_file }}
+
+  # ----------------------------------------------------------
+  # 3. Apply & Ansible Deploy (承認が必要な環境)
+  # ----------------------------------------------------------
   terraform-apply:
     name: 'Apply & Ansible Deploy'
-    needs: terraform-setup
+    needs: [terraform-setup, terraform-plan]
+    # 【安全設計】GitHubのSettings > Environments で "production" に "Required reviewers" を設定してください
     environment: ${{ needs.terraform-setup.outputs.environment }}
     runs-on: ubuntu-latest
     steps:
@@ -42,24 +74,36 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init & Apply
-        working-directory: ./my-project/terraform
+        working-directory: ./terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          TF_VAR_ssh_public_key: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
         run: |
           terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
           terraform apply -var-file=${{ needs.terraform-setup.outputs.var_file }} -auto-approve
 
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
       - name: Ansible Deploy
-        working-directory: ./my-project/Ansible
+        working-directory: ./ansible
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          # SSH秘密鍵を一時ファイルとして書き出し
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          # 秘密鍵のセットアップ
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # TerraformからIPを取得（プライベートIPまたはパブリックIP）
           VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
           
-          # インベントリファイルを使わず、実行時に直接IPを指定する（これが最も失敗しない方法です）
-          ansible-playbook -i "${VM_IP}," \
-            -u ${{ secrets.TF_VAR_admin_username }} \
-            -e "ansible_password=${{ secrets.TF_VAR_admin_password }}" \
-            -e "ansible_python_interpreter=/usr/bin/python3" \
+          # 作成した inventory.ini を活用し、IPを動的に渡して実行
+          ansible-playbook -i inventory.ini \
+            -e "target_ip=${VM_IP}" \
+            -e "ansible_user=${{ secrets.TF_VAR_admin_username }}" \
             site.yml
