@@ -1,7 +1,8 @@
 # ==========================================
 # 検証環境用パラメーター (env-test.tfvars)
 # ==========================================
-# 命名を rg-web-test に合わせるための設定
+
+# 整合性確認: variables.tfのバリデーション通りの "test" に設定
 environment  = "test"
 project_name = "web"
 location     = "japanwest" 

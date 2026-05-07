@@ -38,13 +38,13 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # ベストプラクティス: パスワード認証を無効化し、SSH公開鍵認証を強制
-  disable_password_authentication = true
+  # 【修正ポイント】GitHub Secretsのパスワードを使用するためパスワード認証を有効化
+  # これにより、公開鍵(SSH_PUBLIC_KEY)がなくても構築が成功します
+  disable_password_authentication = false
+  admin_password                  = var.admin_password
 
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = var.ssh_public_key
-  }
+  # SSH公開鍵ブロックは、Secretsに鍵が存在しないため削除しました
+  # 今後は admin_password を使用してBastion経由でログインします
 
   network_interface_ids = [
     azurerm_network_interface.nic.id,
@@ -53,7 +53,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   # ストレージ設定
   os_disk {
     name                 = "osdisk-vm-${local.resource_prefix}"
-    caching              = "ReadWrite"
+    caching               = "ReadWrite"
     storage_account_type = "StandardSSD_LRS" # 性能とコストの最適解
   }
 
@@ -80,10 +80,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   tags = local.common_tags
 
-  # インフラ変更時にOSディスクを即座に削除する（providers.tfの設定と連動）
+  # インフラ変更時の挙動制御
   lifecycle {
     ignore_changes = [
-      admin_ssh_key, # 運用中のキー変更による意図しない再起動を防止
+      admin_password, # パスワード変更による意図しない再起動を防止
     ]
   }
 }

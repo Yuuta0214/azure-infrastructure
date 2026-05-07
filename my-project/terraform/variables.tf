@@ -4,7 +4,7 @@
 variable "location" {
   description = "リソースを配置するリージョン"
   type        = string
-  default     = "japanwest" # ログの japanwest に合わせます
+  default     = "japanwest" 
 }
 
 # ==========================================
@@ -13,7 +13,7 @@ variable "location" {
 variable "project_name" {
   description = "プロジェクトの基本名称"
   type        = string
-  default     = "web" # ログの「rg-web-test」に合わせて「web-project」から「web」に変更
+  default     = "web"
 
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
@@ -24,7 +24,7 @@ variable "project_name" {
 # ==========================================
 # 16. 実行環境の定義
 # ==========================================
-variable "environment" { # 変数名を env から environment に修正し、Actions側と統一
+variable "environment" {
   description = "実行環境 (prod または test)"
   type        = string
   default     = "test"
@@ -54,25 +54,30 @@ variable "admin_username" {
 
   validation {
     condition     = !contains(["admin", "root", "test", "user", "azure", "administrator"], var.admin_username)
-    error_message = "セキュリティおよびAzureの制限により 'admin', 'root', 'test', 'user', 'azure' 等はユーザー名に使用できません。"
+    error_message = "セキュリティおよびAzureの制限により、これら特定の名称はユーザー名に使用できません。"
   }
 }
 
 # ==========================================
-# 19. パスワードの定義
+# 19. パスワードの定義（修正済み）
 # ==========================================
 variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
   sensitive   = true
-  default     = null 
+  # defaultを削除し、必須入力にします。GitHub Actions側から確実に受け取るための設定です。
+
+  validation {
+    condition     = length(var.admin_password) >= 12
+    error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
+  }
 }
 
 # ==========================================
 # 20. SSH公開鍵の定義
 # ==========================================
 variable "ssh_public_key" {
-  description = "VMに接続するためのSSH公開鍵"
+  description = "VMに接続するためのSSH公開鍵（現在はパスワード認証を優先するため空を許容）"
   type        = string
   default     = ""
 }
