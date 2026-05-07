@@ -2,14 +2,14 @@ version: '3.8'
 
 services:
   # ------------------------------------------
-  # 1. DB層: MySQL
+  # 1. DB層: MySQL (データの永続化と隔離)
   # ------------------------------------------
   db:
     image: mysql:8.0
     container_name: mysql-db
     restart: unless-stopped
     environment:
-      # Ansible Vault 等から渡される変数を使用
+      # Ansible の変数({{ ... }})を使用してセキュアに流し込み
       MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
       MYSQL_DATABASE: "{{ mysql_db_name }}"
       MYSQL_USER: "{{ mysql_user }}"
@@ -18,31 +18,54 @@ services:
       - db_data:/var/lib/mysql
     networks:
       - backend-nw
-    # 【追加】ヘルスチェック：DBが起動完了したかを判定
+    # DB起動完了を判定するヘルスチェック (条件3: 必須初期設定)
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p{{ mysql_root_password }}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u{{ mysql_user }}", "-p{{ mysql_password }}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # ------------------------------------------
-  # 2. Web層: Nginx
+  # 2. App層: Backend Application (ビジネスロジック)
+  # ------------------------------------------
+  app:
+    image: python:3.11-slim
+    container_name: python-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy # DBが正常起動するまで待機
+    environment:
+      # アプリケーションからDBへの接続設定
+      DB_HOST: db
+      DB_NAME: "{{ mysql_db_name }}"
+      DB_USER: "{{ mysql_user }}"
+      DB_PASS: "{{ mysql_password }}"
+    volumes:
+      - ./app:/app
+    working_dir: /app
+    # コンテナ起動時に簡易的なWEBサーバーとして動作させる設定
+    command: python3 -m http.server 8000
+    networks:
+      - backend-nw
+
+  # ------------------------------------------
+  # 3. Web層: Nginx (リバースプロキシ & 静的コンテンツ)
   # ------------------------------------------
   web:
     image: nginx:stable-alpine
     container_name: nginx-web
     restart: unless-stopped
-    # 構成図の要件: ロードバランサー(8080) -> VM(80) -> コンテナ(80)
+    # 構成図要件: ALB(8080) -> VM(80) -> コンテナ(80)
     ports:
       - "80:80"
     depends_on:
-      db:
-        condition: service_healthy # DBの準備ができてからNginxを起動
+      - app # App層の準備を待機
     networks:
       - frontend-nw
       - backend-nw
     volumes:
-      # 設定ファイルとコンテンツの同期用
+      # 設定ファイルとHTMLをマウント (:ro でコンテナ側からの書き込み禁止)
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./html:/usr/share/nginx/html:ro
 
@@ -50,16 +73,19 @@ services:
 # ネットワーク定義
 # ==========================================
 networks:
-  # 外部トラフィック用
+  # Webサーバーが受ける外部通信用
   frontend-nw:
     driver: bridge
-  # DB通信用（Webコンテナからのみアクセス可能）
+
+  # DB/App間、Web/App間の内部通信用
+  # internal: true により、このネットワーク上のコンテナは外部へ直接抜けられず、
+  # 外部からも直接アクセスできない強固な隔離状態を維持します。
   backend-nw:
     driver: bridge
-    internal: true # 【修正】このネットワークを外部から完全に遮断
+    internal: true
 
 # ==========================================
-# ボリューム定義
+# ボリューム定義 (データの永続化)
 # ==========================================
 volumes:
   db_data:

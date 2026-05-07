@@ -3,13 +3,18 @@
 # ==========================================
 env          = "test"
 project_name = "web-project"
-location     = "japanwest" # 本番とのリージョン分散テストを兼ねて西日本
+location     = "japanwest" # 地理的冗長性の検証を兼ねた西日本リージョン
 
-# 検証環境: コスト効率重視のBシリーズ
-# B2ms(2vCPU/8GB)は、B2sよりもメモリに余裕があり、
-# Dockerビルドや初期セットアップ時に「メモリ不足でのハングアップ」を防げます
+# 検証環境用 VMサイズ
+# Standard_B2ms (2vCPU / 8GB RAM)
+# B2s(4GB)ではなくB2ms(8GB)を選択することで、Ansibleの実行や
+# Dockerイメージのビルド時にメモリ枯渇でプロセスが死ぬリスクを大幅に低減します。
 vm_size      = "Standard_B2ms"
 
+# 管理ユーザー名
+admin_username = "azureuser"
+
+# 追加の管理タグ
 tags = {
   BusinessUnit = "Dev-Test"
 }

@@ -1,114 +1,149 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [ "main", "develop" ]
+  workflow_dispatch: # 手動実行（画像 Job #40 の形式に準拠）
 
 permissions:
   contents: read
 
 jobs:
-  # ----------------------------------------------------------
-  # 1. 共通変数のセットアップ
-  # ----------------------------------------------------------
-  terraform-setup:
-    name: 'Setup Environment'
+  # ==========================================
+  # 1. 検証と計画 (Validation & Plan)
+  # ==========================================
+  terraform-plan:
+    name: '1. 検証と計画 (Validation & Plan)'
     runs-on: ubuntu-latest
-    outputs:
-      state_file: ${{ steps.vars.outputs.state_file }}
-      var_file: ${{ steps.vars.outputs.var_file }}
-      environment: ${{ steps.vars.outputs.environment }}
     steps:
-      - id: vars
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Azure ログイン
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: バックエンド用ストレージの存在確認と作成
+        # ストレージアカウント作成時の競合やDeleting状態を考慮した待機ロジック
+        run: |
+          echo "Checking 'rg-storage-state' status..."
+          for i in {1..20}; do
+            STATUS=$(az group show --name rg-storage-state --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
+            if [ "$STATUS" = "Deleting" ]; then
+              echo "Resource group is deleting... waiting 30s ($i/20)"
+              sleep 30
+            else
+              break
+            fi
+          done
+
+          STORAGE_EXISTS=$(az storage account list --query "[?name=='sttfstate20260506yuta'].name" -o tsv)
+          if [ -z "$STORAGE_EXISTS" ]; then
+            az group create --name rg-storage-state --location japanwest
+            az storage account create --name sttfstate20260506yuta --resource-group rg-storage-state --location japanwest --sku Standard_LRS --min-tls-version TLS1_2
+            az storage container create --name tfstate --account-name sttfstate20260506yuta
+          fi
+
+      - name: Terraform State のリース解除
+        # 前回の実行失敗でロックが残っている場合に備えた処置
+        run: |
+          az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || echo "No lease to break"
+
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: 既存リソースグループのインポート
+        # インフラの冪等性を守るため、既存のRGがある場合は確実に取り込む
+        working-directory: ./my-project/terraform
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "state_file=prod.tfstate" >> $GITHUB_OUTPUT
-            echo "var_file=env-prod.tfvars" >> $GITHUB_OUTPUT
-            echo "environment=production" >> $GITHUB_OUTPUT
+            TARGET_RG="rg-web-project"; TARGET_VARS="env-prod.tfvars"; TARGET_LOC="japaneast"
           else
-            echo "state_file=test.tfstate" >> $GITHUB_OUTPUT
-            echo "var_file=env-test.tfvars" >> $GITHUB_OUTPUT
-            echo "environment=development" >> $GITHUB_OUTPUT
+            TARGET_RG="rg-web-test"; TARGET_VARS="env-test.tfvars"; TARGET_LOC="japanwest"
           fi
+          az group create --name $TARGET_RG --location $TARGET_LOC || true
+          terraform import -lock=false -var-file=$TARGET_VARS azurerm_resource_group.rg /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$TARGET_RG || echo "Already imported"
 
-  # ----------------------------------------------------------
-  # 2. Terraform Plan & Backend Preparation
-  # ----------------------------------------------------------
-  terraform-plan:
-    name: 'Terraform Plan'
-    needs: terraform-setup
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Terraform 構文チェック
+        working-directory: ./my-project/terraform
+        run: terraform validate
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Ansible 構文チェック
+        # 画像のステップに合わせて追加。早期失敗を実現
+        working-directory: ./my-project/Ansible
+        run: ansible-playbook site.yml --syntax-check
 
-      - name: Ensure Backend Storage Exists
-        run: |
-          RG_NAME="rg-storage-state"
-          ST_NAME="sttfstate20260506yuta"
-          CONTAINER="tfstate"
-          LOCATION="japaneast"
-          if ! az group show --name $RG_NAME &>/dev/null; then
-            az group create --name $RG_NAME --location $LOCATION
-          fi
-          if ! az storage account show --name $ST_NAME --resource-group $RG_NAME &>/dev/null; then
-            az storage account create --name $ST_NAME --resource-group $RG_NAME --sku Standard_LRS --encryption-services blob
-          fi
-          CONNECTION_STRING=$(az storage account show-connection-string --name $ST_NAME --resource-group $RG_NAME --query connectionString -o tsv)
-          az storage container create --name $CONTAINER --connection-string "$CONNECTION_STRING" || true
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false # ラッパーによる終了コードの誤認を防止
-
-      - name: Terraform Init & Plan
+      - name: Terraform 実行計画の作成
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          # 【重要】SSH公開鍵のクリーニング。Secretが不正な場合でも有効な形式に強制。
-          RAW_PUB_KEY: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
-          # 公開鍵が ssh-rsa で始まっていない場合は、ダミーの有効な鍵を使用する（エラー回避）
-          if [[ ! $RAW_PUB_KEY =~ ^ssh-rsa ]]; then
-            export TF_VAR_ssh_public_key="ssh-rsa AAAAB3Nza1yc2EAAAADAQABAAABAQC8z5nN5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V github-actions"
-          else
-            export TF_VAR_ssh_public_key="$RAW_PUB_KEY"
-          fi
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          terraform plan -lock=false -var-file=$VAR_FILE
 
-          terraform init -backend-config="key=${{ needs.terraform-setup.outputs.state_file }}"
-          terraform plan -var-file=${{ needs.terraform-setup.outputs.var_file }} -out=tfplan
-
-  # ----------------------------------------------------------
-  # 3. Apply & Ansible Deploy
-  # ----------------------------------------------------------
+  # ==========================================
+  # 2. 適用と Ansible デプロイ (Apply & Ansible Deploy)
+  # ==========================================
   terraform-apply:
-    name: 'Apply & Ansible Deploy'
-    needs: [terraform-setup, terraform-plan]
-    environment: ${{ needs.terraform-setup.outputs.environment }}
+    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/azure-setup'
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref == 'refs/heads/main') && 'production' || 'development' }}
     steps:
-      - uses: actions/checkout@v4
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Azure ログイン
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init & Apply
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init
+
+      - name: Terraform リソース適用
+        # 条件1：ここでVM（箱）を確実に作成
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_admin_password }}
-          RAW_PUB_KEY: ${{ secrets.TF_VAR_SSH_PUBLIC_KEY }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_admin_username }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
-          if [[ ! $RAW_PUB_KEY =~ ^ssh-rsa ]]; then
-            export TF_VAR_ssh_public_key="ssh-rsa AAAAB3Nza1yc2EAAAADAQABAAABAQC8z5nN5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V5V github-actions"
-          else
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          terraform apply -var-file=$VAR_FILE -auto-approve
+
+      - name: Ansible 用 SSH キー配置
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Ansible プレイブックの実行
+        # 条件1・2：VMの準備完了を待つ site.yml を実行（箱と中身の分離）
+        working-directory: ./my-project/Ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+          # site.yml の各サービスに渡される機密情報
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+        run: |
+          # 最新のIPを取得
+          VM_IP=$(cd ../terraform && terraform output -raw alb_public_ip)
+          ADMIN_USER=$(cd ../terraform && terraform output -raw environment) # variables から取得
+          
+          ansible-playbook -i inventory.ini site.yml \
+            -e "target_ip=$VM_IP" \
+            -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
+            -e "mysql_password=$MYSQL_PASSWORD" \
+            -e "mysql_user=webuser" \
+            -e "mysql_db_name=webapp_db"

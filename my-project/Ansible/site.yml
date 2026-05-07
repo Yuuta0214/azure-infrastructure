@@ -1,114 +1,90 @@
 ---
-- name: Full VM Provisioning and Container Deployment
-  hosts: azure_vms
+- name: "Deployment of Web Service (Nginx/App/DB)"
+  hosts: all
   become: yes
-  gather_facts: yes
-  
+  gather_facts: no # 初期待機のために一旦オフ
+
   vars:
-    # 構成図に合わせて設定
-    docker_packages:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
+    # docker-compose で使用するディレクトリ
+    project_root: "/home/{{ admin_username }}/app"
 
   tasks:
-    # 1. 接続が確立するまで待機
-    - name: Wait for SSH connection
-      wait_for_connection:
-        delay: 5
-        timeout: 300
-
-    # 2. bootstrap.sh が完了するまで待機（フラグファイルの確認）
-    - name: Wait until bootstrap.sh is 100% finished
-      wait_for:
+    # ==========================================
+    # 1. 箱の準備完了を待機 (境界線の同期)
+    # ==========================================
+    - name: "Wait for bootstrap.sh to complete"
+      ansible.builtin.wait_for:
         path: /var/tmp/bootstrap_complete
         state: present
-        timeout: 300
+        timeout: 600
+        msg: "Infrastructure bootstrap did not complete within 10 minutes."
 
-    # 3. パッケージインストール（ベース）
-    - name: Update apt and install base packages
-      apt:
-        name: 
-          - curl
-          - gnupg
-          - ca-certificates
-          - chrony
-          - python3-pip
-          - python3-docker # AnsibleからDockerを操作するために必要
+    - name: "Gather facts after bootstrap"
+      ansible.builtin.setup:
+
+    # ==========================================
+    # 2. Docker 環境のセットアップ
+    # ==========================================
+    - name: "Install Docker dependencies"
+      ansible.builtin.apt:
+        name: [apt-transport-https, ca-certificates, curl, gnupg, lsb-release]
         state: present
         update_cache: yes
-        cache_valid_time: 3600
-      register: apt_res
-      until: apt_res is success
-      retries: 5
-      delay: 10
 
-    # 4. タイムゾーン設定
-    - name: Set timezone to Asia/Tokyo
-      timezone:
-        name: "Asia/Tokyo"
-
-    # 5. Docker 公式 GPG キーの追加
-    - name: Add Docker's official GPG key
-      apt_key:
+    - name: "Add Docker's official GPG key"
+      ansible.builtin.apt_key:
         url: https://download.docker.com/linux/debian/gpg
         state: present
-      register: gpg_res
-      until: gpg_res is success
-      retries: 3
+        keyring: /etc/apt/keyrings/docker.gpg
 
-    # 6. Docker リポジトリの追加
-    - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+    - name: "Add Docker repository"
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
         state: present
+        filename: docker
 
-    # 7. Docker のインストール
-    - name: Install Docker engine
-      apt:
-        name: "{{ docker_packages }}"
+    - name: "Install Docker Engine and Compose Plugin"
+      ansible.builtin.apt:
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
         state: present
         update_cache: yes
-      register: docker_install
-      until: docker_install is success
-      retries: 5
+      notify: "Start and enable docker"
 
-    # 8. Docker サービスの起動と有効化
-    - name: Ensure Docker is started and enabled
-      systemctl:
+    # ==========================================
+    # 3. アプリケーション実行環境の構築
+    # ==========================================
+    - name: "Create project directory structure"
+      ansible.builtin.file:
+        path: "{{ project_root }}/{{ item }}"
+        state: directory
+        owner: "{{ admin_username }}"
+        group: "{{ admin_username }}"
+        mode: '0755'
+      loop: [ '', 'nginx', 'app', 'db_data' ]
+
+    - name: "Deploy docker-compose.yml from template"
+      ansible.builtin.template:
+        src: templates/docker-compose.yml.j2
+        dest: "{{ project_root }}/docker-compose.yml"
+        owner: "{{ admin_username }}"
+        group: "{{ admin_username }}"
+        mode: '0644'
+      register: compose_file
+
+    # ==========================================
+    # 4. コンテナ起動 (3層構造)
+    # ==========================================
+    - name: "Run docker compose up"
+      ansible.builtin.command:
+        cmd: "docker compose up -d --remove-orphans"
+        chdir: "{{ project_root }}"
+      when: compose_file.changed
+      register: docker_output
+      changed_when: "'Started' in docker_output.stdout or 'Created' in docker_output.stdout"
+
+  handlers:
+    - name: "Start and enable docker"
+      ansible.builtin.service:
         name: docker
         state: started
         enabled: yes
-
-    # 9. 実行ユーザー(admin_username)を docker グループに追加
-    - name: Add admin user to docker group
-      user:
-        name: "{{ ansible_user }}"
-        groups: docker
-        append: yes
-
-    # 10. 【構成図の実現】Nginx コンテナを Port 80 で起動
-    # ロードバランサーが 8080 で受け、この 80 へ転送してきます
-    - name: Launch Nginx container (Frontend/Backend Sample)
-      docker_container:
-        name: web-app
-        image: nginx:latest
-        state: started
-        restart_policy: always
-        published_ports:
-          - "80:80"
-        env:
-          NGINX_HOST: localhost
-          NGINX_PORT: 80
-
-    # 11. 最終確認
-    - name: Check if container is running
-      command: docker ps
-      register: docker_ps_output
-      changed_when: false
-
-    - name: Display docker ps result
-      debug:
-        var: docker_ps_output.stdout_lines

@@ -4,7 +4,7 @@
 variable "location" {
   description = "リソースを配置するリージョン"
   type        = string
-  default     = "japaneast" # 東日本
+  default     = "japaneast" # 東日本（標準）
 }
 
 # ==========================================
@@ -41,7 +41,7 @@ variable "env" {
 variable "vm_size" {
   description = "VMのサイズ（SKU）"
   type        = string
-  default     = "Standard_B2s" # コスト効率の良いバースト対応インスタンス
+  default     = "Standard_B2s" # 開発・テストに最適なコスト効率の良いサイズ
 }
 
 # ==========================================
@@ -53,8 +53,9 @@ variable "admin_username" {
   default     = "azureuser"
 
   validation {
-    condition     = !contains(["admin", "root", "test", "user"], var.admin_username)
-    error_message = "Azureの制限により 'admin', 'root', 'test', 'user' 等はユーザー名に使用できません。"
+    # Azure Linux VMで予約されている、または非推奨のユーザー名をブロック
+    condition     = !contains(["admin", "root", "test", "user", "azure", "administrator"], var.admin_username)
+    error_message = "セキュリティおよびAzureの制限により 'admin', 'root', 'test', 'user', 'azure' 等はユーザー名に使用できません。"
   }
 }
 
@@ -64,15 +65,15 @@ variable "admin_username" {
 variable "admin_password" {
   description = "VMの管理者パスワード（12文字以上、複雑性要件必須）"
   type        = string
-  sensitive   = true
-  default     = null # tfvars または 環境変数からの入力を推奨
+  sensitive   = true # コンソール出力やログへの露出を防ぎます
+  default     = null # 安全のため、tfvarsまたはGitHub Secretsからの入力を想定
 }
 
 # ==========================================
 # 20. SSH公開鍵の定義
 # ==========================================
 variable "ssh_public_key" {
-  description = "VMに接続するためのSSH公開鍵（パスワードより優先されます）"
+  description = "VMに接続するためのSSH公開鍵（パスワード認証より安全な接続に必須）"
   type        = string
   default     = ""
 }
@@ -81,7 +82,7 @@ variable "ssh_public_key" {
 # 21. 追加タグ（任意）
 # ==========================================
 variable "tags" {
-  description = "すべてのリソースに付与する追加のタグ（main.tfのlocal.common_tagsとマージ用）"
+  description = "すべてのリソースに付与する追加のタグ"
   type        = map(string)
   default     = {}
 }

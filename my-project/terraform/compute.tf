@@ -24,8 +24,9 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_as
   backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
 }
 
-# ※【重要】設計図に従い、LB経由のSSH NATルール紐付けは「Bastion利用」のため削除しました。
-# これにより、インターネットから直接22番ポートへの攻撃経路が完全に遮断されます。
+# ※【セキュリティ設計】
+# インターネットからの直接的なSSH攻撃を防ぐため、LB経由のSSH用NATルールは一切定義しません。
+# メンテナンス時は、別途構築するAzure Bastion経由でのアクセスを想定します。
 
 # ==========================================
 # 12. Linux 仮想マシン（VM）の作成
@@ -37,7 +38,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # セキュリティ強化: パスワード認証を原則無効化（SSHキー必須）
+  # ベストプラクティス: パスワード認証を無効化し、SSH公開鍵認証を強制
   disable_password_authentication = true
 
   admin_ssh_key {
@@ -49,11 +50,14 @@ resource "azurerm_linux_virtual_machine" "vm" {
     azurerm_network_interface.nic.id,
   ]
 
+  # ストレージ設定
   os_disk {
+    name                 = "osdisk-vm-${local.resource_prefix}"
     caching              = "ReadWrite"
-    storage_account_type = "StandardSSD_LRS" # パフォーマンスとコストのバランスが良いSSD
+    storage_account_type = "StandardSSD_LRS" # 性能とコストの最適解
   }
 
+  # OSイメージ（最新の安定版Debian 12を指定）
   source_image_reference {
     publisher = "debian"
     offer     = "debian-12"
@@ -61,17 +65,25 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # プロビジョニング用スクリプトの流し込み
+  # 13. プロビジョニング（Cloud-init）の設定
+  # 外部スクリプトを読み込み、Ansibleが動作可能な状態（Python導入等）まで自動化します
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
   }))
 
-  # 【ベストプラクティス】マネージド ID の有効化
-  # これにより、将来的にパスワードを使わず Azure Key Vault や ACR へアクセス可能になります
+  # 【ベストプラクティス】マネージド ID (SystemAssigned) の有効化
+  # インスタンス自体に権限を持たせ、将来的にシークレットなしで各種Azureサービスへ接続可能にします
   identity {
     type = "SystemAssigned"
   }
 
   tags = local.common_tags
+
+  # インフラ変更時にOSディスクを即座に削除する（providers.tfの設定と連動）
+  lifecycle {
+    ignore_changes = [
+      admin_ssh_key, # 運用中のキー変更による意図しない再起動を防止
+    ]
+  }
 }
