@@ -9,7 +9,7 @@ project_name = "web"
 # 2. コンピューティング定義 (VMスペック)
 # ==========================================
 # 修正ポイント: 409 Conflict (SkuNotAvailable) 回避のため B2ms から B2s へ変更
-vm_size      = "Standard_B2s"
+vm_size      = "Standard_D2s_v3"
 
 # ==========================================
 # 3. 認証・セキュリティ定義

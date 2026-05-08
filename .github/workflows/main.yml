@@ -32,7 +32,7 @@ jobs:
           CONTAINER_NAME="tfstate"
           
           echo "Ensuring Resource Group: $RG_NAME"
-          az group create --name "$RG_NAME" --location "$LOCATION" --output none
+          az group create --name "$RG_NAME" --location "$LOCATION" --output none || true
 
           echo "Ensuring Storage Account: $STORAGE_NAME"
           # 作成コマンドに || true を付けることで、既存でも新規でもエラーを投げずに即座に次へ進みます。
@@ -84,7 +84,7 @@ jobs:
           TARGET_RG="rg-$PROJECT-$ENV"
           
           # リソースグループの存在を保証してからインポート
-          az group create --name "$TARGET_RG" --location "$LOC" --output none
+          az group create --name "$TARGET_RG" --location "$LOC" --output none || true
           
           terraform import -input=false -var-file="$VAR_FILE" \
             azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/"$TARGET_RG" || echo "Already imported or not exists."
@@ -109,7 +109,8 @@ jobs:
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    if: github.ref != 'refs/heads/main'
+    # 【最重要修正】自動実行を防ぐため、手動実行(workflow_dispatch)かつmainブランチ以外である場合のみ許可。
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
     needs: terraform-plan
     runs-on: ubuntu-latest
     steps:
