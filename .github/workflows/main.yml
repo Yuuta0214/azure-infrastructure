@@ -23,7 +23,8 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【修正】判定処理を廃止し「存在を保証する（create || true）」に一本化。
+      # 【修正】--no-wait を追加し、Azure側の作成完了を待たずに即座に次へ進めます。
+      # これにより、前回の3分以上の遅延やタイムアウトを物理的に回避します。
       - name: バックエンドストレージの存在確認
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
@@ -32,7 +33,7 @@ jobs:
           CONTAINER_NAME="tfstate"
           
           echo "Ensuring Resource Group: $RG_NAME"
-          az group create --name "$RG_NAME" --location "$LOCATION" --output none || true
+          az group create --name "$RG_NAME" --location "$LOCATION" --no-wait --output none || true
 
           echo "Ensuring Storage Account: $STORAGE_NAME"
           az storage account create \
@@ -42,9 +43,11 @@ jobs:
             --sku Standard_LRS \
             --min-tls-version TLS1_2 \
             --allow-blob-public-access false \
+            --no-wait \
             --output none || true
 
           echo "Ensuring Container: $CONTAINER_NAME"
+          # コンテナ作成は即時完了するため、後続の init への影響を最小限にします。
           az storage container create \
             --name "$CONTAINER_NAME" \
             --account-name "$STORAGE_NAME" \
@@ -79,7 +82,7 @@ jobs:
           PROJECT="web"
           TARGET_RG="rg-$PROJECT-$ENV"
           
-          az group create --name "$TARGET_RG" --location "$LOC" --output none || true
+          az group create --name "$TARGET_RG" --location "$LOC" --no-wait --output none || true
           
           terraform import -input=false -var-file="$VAR_FILE" \
             azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/"$TARGET_RG" || echo "Already imported or not exists."
@@ -104,8 +107,7 @@ jobs:
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    # 【改修】Environment機能を追加。これで物理的に停止します。
-    # 自動で走ってしまった「if」判定は誤動作の原因になるため、物理停止に一本化して削除しました。
+    # 【改修】Environment機能による物理停止。画面上での承認が必須です。
     environment: production-approval
     needs: terraform-plan
     runs-on: ubuntu-latest
