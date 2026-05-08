@@ -1,12 +1,7 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: 
-    inputs:
-      confirm_deployment:
-        description: 'デプロイを実行するには "yes" と入力してください'
-        required: true
-        default: 'no'
+  workflow_dispatch: # 入力フォームを削除し、以前のシンプルな実行形式に戻しました
 
 permissions:
   contents: read
@@ -114,12 +109,9 @@ jobs:
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    # 【最重要改修】workflow_dispatchでの入力値が厳密に "yes" でない限り、ジョブ自体をスキップ。
-    # かつ、mainブランチ（本番）からの実行は強制的に遮断。
-    if: |
-      github.event_name == 'workflow_dispatch' && 
-      github.event.inputs.confirm_deployment == 'yes' && 
-      github.ref != 'refs/heads/main'
+    # 【改修】GitHub Environments機能を使用し、人間がボタンを押すまで待機させます。
+    # また、mainブランチ（本番）からの実行は保護ルールのために停止させます。
+    environment: production-approval
     needs: terraform-plan
     runs-on: ubuntu-latest
     steps:
@@ -144,11 +136,6 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # 二重の安全策：シェルレベルでも入力値をチェックし、"yes"でなければ即座に終了。
-          if [ "${{ github.event.inputs.confirm_deployment }}" != "yes" ]; then
-            echo "Deployment was not confirmed with 'yes'. Aborting."
-            exit 1
-          fi
           terraform apply -var-file=env-test.tfvars -auto-approve -input=false
 
       - name: Ansible プレイブックの実行
