@@ -1,7 +1,7 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # 入力フォームを削除し、以前のシンプルな実行形式に戻しました
+  workflow_dispatch: # 入力フォームを完全に削除しました
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【修正】判定処理を廃止し「存在を保証する（create || true）」に一本化。これでハングもエラーも防ぎます。
+      # 【修正】判定処理を廃止し「存在を保証する（create || true）」に一本化。
       - name: バックエンドストレージの存在確認
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
@@ -35,7 +35,6 @@ jobs:
           az group create --name "$RG_NAME" --location "$LOCATION" --output none || true
 
           echo "Ensuring Storage Account: $STORAGE_NAME"
-          # 作成コマンドに || true を付けることで、既存でも新規でもエラーを投げずに即座に次へ進みます。
           az storage account create \
             --name "$STORAGE_NAME" \
             --resource-group "$RG_NAME" \
@@ -46,7 +45,6 @@ jobs:
             --output none || true
 
           echo "Ensuring Container: $CONTAINER_NAME"
-          # コンテナも同様に、存在確認を挟まず作成を試みてエラーを無視させます。
           az storage container create \
             --name "$CONTAINER_NAME" \
             --account-name "$STORAGE_NAME" \
@@ -55,7 +53,6 @@ jobs:
 
       - name: Terraform State のリース解除
         run: |
-          # リースロックによる terraform init の失敗を防止
           az storage blob lease break \
             --blob-name terraform.tfstate \
             --container-name tfstate \
@@ -74,7 +71,6 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # main.tf の命名規則 rg-${project}-${env} に完全一致させる
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             ENV="prod"; VAR_FILE="env-prod.tfvars"; LOC="japaneast"
           else
@@ -83,7 +79,6 @@ jobs:
           PROJECT="web"
           TARGET_RG="rg-$PROJECT-$ENV"
           
-          # リソースグループの存在を保証してからインポート
           az group create --name "$TARGET_RG" --location "$LOC" --output none || true
           
           terraform import -input=false -var-file="$VAR_FILE" \
@@ -109,8 +104,8 @@ jobs:
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    # 【改修】GitHub Environments機能を使用し、人間がボタンを押すまで待機させます。
-    # また、mainブランチ（本番）からの実行は保護ルールのために停止させます。
+    # 【改修】Environment機能を追加。これで物理的に停止します。
+    # 自動で走ってしまった「if」判定は誤動作の原因になるため、物理停止に一本化して削除しました。
     environment: production-approval
     needs: terraform-plan
     runs-on: ubuntu-latest
@@ -136,6 +131,7 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
+          # 事故防止のため env-test.tfvars に固定して実行します
           terraform apply -var-file=env-test.tfvars -auto-approve -input=false
 
       - name: Ansible プレイブックの実行
@@ -146,9 +142,7 @@ jobs:
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # outputs.tf で新設した専用の Output 名 (ansible_host_ip) を使用
           VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
-          
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS" \
             -e "admin_username=$ADMIN_USER" \
