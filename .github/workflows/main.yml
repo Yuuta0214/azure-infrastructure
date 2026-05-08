@@ -23,18 +23,27 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: バックエンド用ストレージの存在確認と作成
+      # 【最重要修正】ハングする「作成」コマンドを廃止し、秒単位で終わる「存在確認」に限定
+      - name: バックエンドストレージの存在確認
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
-          CONTAINER_NAME="tfstate"
-          az group create --name $RG_NAME --location japanwest --output none
-          az storage account create --name $STORAGE_NAME --resource-group $RG_NAME --location japanwest --sku Standard_LRS --min-tls-version TLS1_2 --output none || true
-          az storage container create --name $CONTAINER_NAME --account-name $STORAGE_NAME --auth-mode login --output none || true
+          
+          echo "Checking storage account: $STORAGE_NAME"
+          # showコマンドは読み取りのみのため、作成時のようにハングしません
+          if ! az storage account show --name "$STORAGE_NAME" --resource-group "$RG_NAME" --query "name" -o tsv; then
+            echo "Error: Storage account not found. Please ensure it exists in Azure Portal."
+            exit 1
+          fi
+          echo "Storage account verified."
 
       - name: Terraform State のリース解除
         run: |
-          az storage blob lease break --blob-name terraform.tfstate --container-name tfstate --account-name sttfstate20260506yuta || true
+          # リースロックによる terraform init の失敗を防止
+          az storage blob lease break \
+            --blob-name terraform.tfstate \
+            --container-name tfstate \
+            --account-name sttfstate20260506yuta || echo "No active lease to break."
 
       - name: Terraform セットアップ
         uses: hashicorp/setup-terraform@v3
@@ -49,7 +58,7 @@ jobs:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # 修正: main.tf の命名規則と完全に一致させる
+          # main.tf の命名規則 rg-${project}-${env} に完全一致させる
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
             ENV="prod"; VAR_FILE="env-prod.tfvars"; LOC="japaneast"
           else
@@ -58,10 +67,11 @@ jobs:
           PROJECT="web"
           TARGET_RG="rg-$PROJECT-$ENV"
           
-          # リソースグループが存在しない場合のみ作成し、その後インポート
-          az group create --name $TARGET_RG --location $LOC --output none || true
-          terraform import -input=false -var-file=$VAR_FILE \
-            azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$TARGET_RG || true
+          # リソースグループの存在を保証してからインポート
+          az group create --name "$TARGET_RG" --location "$LOC" --output none
+          
+          terraform import -input=false -var-file="$VAR_FILE" \
+            azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/"$TARGET_RG" || echo "Already imported or not exists."
 
       - name: 構文チェック (Terraform & Ansible)
         working-directory: ./my-project
@@ -76,14 +86,13 @@ jobs:
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform plan -var-file=$VAR_FILE -input=false
+          terraform plan -var-file="$VAR_FILE" -input=false
 
   # ==========================================
   # 2. 適用と Ansible デプロイ (Apply & Ansible Deploy)
   # ==========================================
   terraform-apply:
     name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
-    # test環境（非mainブランチ）のみ自動実行。本番は安全のため手動トリガー推奨
     if: github.ref != 'refs/heads/main'
     needs: terraform-plan
     runs-on: ubuntu-latest
@@ -119,7 +128,7 @@ jobs:
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # 修正: outputs.tf で新設した専用の Output 名を使用
+          # outputs.tf で新設した専用の Output 名 (ansible_host_ip) を使用
           VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
           
           ansible-playbook -i inventory.ini site.yml \
