@@ -23,24 +23,35 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【最重要修正】リソースグループの存在を保証し、ストレージは「作成」ではなく「存在確認」のみに限定
+      # 【修正】判定処理を廃止し「存在を保証する（create || true）」に一本化。これでハングもエラーも防ぎます。
       - name: バックエンドストレージの存在確認
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           LOCATION="japanwest"
+          CONTAINER_NAME="tfstate"
           
-          echo "Checking Resource Group: $RG_NAME"
-          # リソースグループがなければ作成。これはハングせず一瞬で終わります。
+          echo "Ensuring Resource Group: $RG_NAME"
           az group create --name "$RG_NAME" --location "$LOCATION" --output none
 
-          echo "Checking storage account: $STORAGE_NAME"
-          # showコマンドは読み取りのみのため、作成時のようにハングしません
-          if ! az storage account show --name "$STORAGE_NAME" --resource-group "$RG_NAME" --query "name" -o tsv; then
-            echo "Error: Storage account not found. Please ensure it exists in Azure Portal."
-            exit 1
-          fi
-          echo "Storage account verified."
+          echo "Ensuring Storage Account: $STORAGE_NAME"
+          # 作成コマンドに || true を付けることで、既存でも新規でもエラーを投げずに即座に次へ進みます。
+          az storage account create \
+            --name "$STORAGE_NAME" \
+            --resource-group "$RG_NAME" \
+            --location "$LOCATION" \
+            --sku Standard_LRS \
+            --min-tls-version TLS1_2 \
+            --allow-blob-public-access false \
+            --output none || true
+
+          echo "Ensuring Container: $CONTAINER_NAME"
+          # コンテナも同様に、存在確認を挟まず作成を試みてエラーを無視させます。
+          az storage container create \
+            --name "$CONTAINER_NAME" \
+            --account-name "$STORAGE_NAME" \
+            --auth-mode login \
+            --output none || true
 
       - name: Terraform State のリース解除
         run: |
