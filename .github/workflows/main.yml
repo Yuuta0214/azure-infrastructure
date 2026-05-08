@@ -23,12 +23,17 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【最重要修正】ハングする「作成」コマンドを廃止し、秒単位で終わる「存在確認」に限定
+      # 【最重要修正】リソースグループの存在を保証し、ストレージは「作成」ではなく「存在確認」のみに限定
       - name: バックエンドストレージの存在確認
         run: |
           STORAGE_NAME="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
+          LOCATION="japanwest"
           
+          echo "Checking Resource Group: $RG_NAME"
+          # リソースグループがなければ作成。これはハングせず一瞬で終わります。
+          az group create --name "$RG_NAME" --location "$LOCATION" --output none
+
           echo "Checking storage account: $STORAGE_NAME"
           # showコマンドは読み取りのみのため、作成時のようにハングしません
           if ! az storage account show --name "$STORAGE_NAME" --resource-group "$RG_NAME" --query "name" -o tsv; then
