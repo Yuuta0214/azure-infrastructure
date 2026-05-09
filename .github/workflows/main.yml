@@ -18,10 +18,6 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      BACKEND_RG: "rg-storage-state"
-      BACKEND_STORAGE: "sttfstate20260506yuta"
-      BACKEND_CONTAINER: "tfstate"
-      LOCATION: "japanwest"
 
     steps:
       - name: Checkout Code
@@ -34,29 +30,18 @@ jobs:
 
       - name: Ensure Backend Infrastructure
         run: |
-          # リソースグループの作成（完了を待機）
-          az group create --name "$BACKEND_RG" --location "$LOCATION"
-          
-          # ストレージアカウントの作成（完了を待機）
+          # 1つずつ完了を待機し、確実にリソースを準備する
+          az group create --name "rg-storage-state" --location "japanwest"
           az storage account create \
-            --name "$BACKEND_STORAGE" \
-            --resource-group "$BACKEND_RG" \
-            --location "$LOCATION" \
+            --name "sttfstate20260506yuta" \
+            --resource-group "rg-storage-state" \
+            --location "japanwest" \
             --sku Standard_LRS \
             --allow-blob-public-access false
-          
-          # コンテナの作成
           az storage container create \
-            --name "$BACKEND_CONTAINER" \
-            --account-name "$BACKEND_STORAGE" \
+            --name "tfstate" \
+            --account-name "sttfstate20260506yuta" \
             --auth-mode login
-
-      - name: Break State Lease
-        run: |
-          az storage blob lease break \
-            --blob-name terraform.tfstate \
-            --container-name "$BACKEND_CONTAINER" \
-            --account-name "$BACKEND_STORAGE" || echo "No active lease."
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -65,34 +50,13 @@ jobs:
         working-directory: ./my-project/terraform
         run: terraform init -input=false
 
-      - name: Import Baseline Resources
-        working-directory: ./my-project/terraform
-        env:
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
-        run: |
-          # 環境判定
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            ENV="prod"; VAR_FILE="env-prod.tfvars"; LOC="japaneast"
-          else
-            ENV="test"; VAR_FILE="env-test.tfvars"; LOC="japanwest"
-          fi
-          TARGET_RG="rg-web-$ENV"
-
-          # ターゲットとなるRGを確実に作成してからインポート
-          az group create --name "$TARGET_RG" --location "$LOC"
-          
-          terraform import -input=false -var-file="$VAR_FILE" \
-            azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/"$TARGET_RG" || echo "Resource already managed by Terraform."
-
-      - name: Validate & Plan
+      - name: Terraform Plan
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
-          terraform validate
           terraform plan -var-file="$VAR_FILE" -input=false -out=tfplan
 
   # ==========================================
@@ -101,6 +65,7 @@ jobs:
   terraform-apply:
     name: '2. Apply'
     needs: terraform-plan
+    # GitHubのEnvironment設定による承認を強制
     environment: production-approval
     runs-on: ubuntu-latest
     steps:
@@ -124,19 +89,22 @@ jobs:
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
-        run: |
-          # テスト環境への適用を基本とし、安全性を確保
-          terraform apply -var-file=env-test.tfvars -auto-approve -input=false
+        run: terraform apply -var-file=env-test.tfvars -auto-approve -input=false
 
       - name: Ansible Provisioning
         working-directory: ./my-project/Ansible
         env:
+          # Ansible 2.13以降のベストプラクティスに基づき、廃止プラグインを無効化
+          ANSIBLE_STDOUT_CALLBACK: default
+          # 以前エラーになった community.general.yaml の代替設定
+          ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
           VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
+          # エラーの原因だったプラグイン指定を排除
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS" \
             -e "admin_username=$ADMIN_USER" \
