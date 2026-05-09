@@ -8,9 +8,6 @@ permissions:
   id-token: write
 
 jobs:
-  # ==========================================
-  # 1. 計画フェーズ (Plan)
-  # ==========================================
   terraform-plan:
     name: '1. Plan'
     runs-on: ubuntu-latest
@@ -30,18 +27,9 @@ jobs:
 
       - name: Ensure Backend Infrastructure
         run: |
-          # 非同期(--no-wait)を完全に排除し、作成完了を確実に待機
           az group create --name "rg-storage-state" --location "japanwest"
-          az storage account create \
-            --name "sttfstate20260506yuta" \
-            --resource-group "rg-storage-state" \
-            --location "japanwest" \
-            --sku Standard_LRS \
-            --allow-blob-public-access false
-          az storage container create \
-            --name "tfstate" \
-            --account-name "sttfstate20260506yuta" \
-            --auth-mode login
+          az storage account create --name "sttfstate20260506yuta" --resource-group "rg-storage-state" --location "japanwest" --sku Standard_LRS --allow-blob-public-access false
+          az storage container create --name "tfstate" --account-name "sttfstate20260506yuta" --auth-mode login
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -59,13 +47,9 @@ jobs:
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
           terraform plan -var-file="$VAR_FILE" -input=false -out=tfplan
 
-  # ==========================================
-  # 2. 適用フェーズ (Apply & Deploy)
-  # ==========================================
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
-    # GitHubリポジトリ側のEnvironment設定で承認を必須にしてください
     environment: production-approval
     runs-on: ubuntu-latest
     steps:
@@ -89,29 +73,33 @@ jobs:
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: terraform apply -var-file=env-test.tfvars -auto-approve -input=false
+
+      - name: Wait for SSH Availability
+        shell: bash
         run: |
-          # 本番事故防止のため、明示的にテスト環境変数を指定
-          terraform apply -var-file=env-test.tfvars -auto-approve -input=false
+          # VMのIPを取得
+          VM_IP=$(cd ./my-project/terraform && terraform output -raw ansible_host_ip)
+          echo "Target VM IP: $VM_IP"
+          
+          # SSHポート(22)が応答を返すまで最大5分間、10秒ごとにリトライ
+          # これにより「Connection timed out」を物理的に回避します
+          echo "Waiting for SSH port 22 to open on $VM_IP..."
+          timeout 300 bash -c "until echo > /dev/tcp/$VM_IP/22; do sleep 10; done" || (echo "SSH port did not open in time" && exit 1)
+          echo "SSH port is open. Proceeding to Ansible."
 
       - name: Ansible Provisioning
         working-directory: ./my-project/Ansible
         env:
-          # SSH接続の対話プロンプトを強制無効化
           ANSIBLE_HOST_KEY_CHECKING: "False"
-          # 最新のAnsible(2.13+)に対応したログ出力形式
           ANSIBLE_STDOUT_CALLBACK: default
           ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
-          # 各種シークレットの流し込み
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # VMのIPを動的に取得
           VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
-          
-          # 特権昇格(sudo)の自動応答のため ansible_become_password を明示的に渡す
-          # ※site.yml側で「become: no」に修正した最初のタスクもこれで安全に通過
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS ansible_become_password=$ADMIN_PASS" \
             -e "admin_username=$ADMIN_USER" \
