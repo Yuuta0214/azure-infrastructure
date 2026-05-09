@@ -30,9 +30,18 @@ jobs:
 
       - name: Ensure Backend Infrastructure
         run: |
+          # 非同期(--no-wait)を完全に排除し、作成完了を確実に待機
           az group create --name "rg-storage-state" --location "japanwest"
-          az storage account create --name "sttfstate20260506yuta" --resource-group "rg-storage-state" --location "japanwest" --sku Standard_LRS --allow-blob-public-access false
-          az storage container create --name "tfstate" --account-name "sttfstate20260506yuta" --auth-mode login
+          az storage account create \
+            --name "sttfstate20260506yuta" \
+            --resource-group "rg-storage-state" \
+            --location "japanwest" \
+            --sku Standard_LRS \
+            --allow-blob-public-access false
+          az storage container create \
+            --name "tfstate" \
+            --account-name "sttfstate20260506yuta" \
+            --auth-mode login
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -56,6 +65,7 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
+    # GitHubリポジトリ側のEnvironment設定で承認を必須にしてください
     environment: production-approval
     runs-on: ubuntu-latest
     steps:
@@ -79,27 +89,31 @@ jobs:
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
-        run: terraform apply -var-file=env-test.tfvars -auto-approve -input=false
+        run: |
+          # 本番事故防止のため、明示的にテスト環境変数を指定
+          terraform apply -var-file=env-test.tfvars -auto-approve -input=false
 
       - name: Ansible Provisioning
         working-directory: ./my-project/Ansible
         env:
-          # Ansibleの実行を非対話形式に強制
+          # SSH接続の対話プロンプトを強制無効化
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          # 最新のAnsible(2.13+)に対応したログ出力形式
           ANSIBLE_STDOUT_CALLBACK: default
           ANSIBLE_CALLBACK_RESULT_FORMAT: yaml
+          # 各種シークレットの流し込み
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # VMのIPを取得
+          # VMのIPを動的に取得
           VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
           
-          # 特権昇格エラーを回避するための引数を追加 (--become-password-fileは使わず、NOPASSWD想定またはextra-varsで制御)
+          # 特権昇格(sudo)の自動応答のため ansible_become_password を明示的に渡す
+          # ※site.yml側で「become: no」に修正した最初のタスクもこれで安全に通過
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS ansible_become_password=$ADMIN_PASS" \
             -e "admin_username=$ADMIN_USER" \
             -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
-            -e "mysql_password=$MYSQL_PASSWORD" \
-            --become
+            -e "mysql_password=$MYSQL_PASSWORD"

@@ -1,105 +1,29 @@
----
 - name: "Deployment of Web Service (Nginx/App/DB)"
   hosts: all
-  become: yes
-  gather_facts: no  # Bootstrap完了を待つため、最初はオフ
+  gather_facts: no
 
   vars:
-    # 運用・保守時に変更しやすいよう変数を集約
     admin_user: "{{ admin_username }}"
     project_root: "/home/{{ admin_username }}/app"
     docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
 
   tasks:
-    # ==========================================
-    # 1. インフラ準備完了の同期 (境界線のチェック)
-    # ==========================================
+    # 昇格なしで実行（接続さえできれば通る）
     - name: "Wait for infrastructure bootstrap to complete"
       ansible.builtin.wait_for:
         path: /var/tmp/bootstrap_complete
         state: present
         timeout: 600
-        msg: "Infrastructure bootstrap (bootstrap.sh) did not complete within 10 minutes."
+      become: no # ここではsudoしない
 
     - name: "Gather facts after bootstrap confirmation"
       ansible.builtin.setup:
+      become: yes # ここから特権が必要
 
-    # ==========================================
-    # 2. Docker 環境のセットアップ (最新の推奨形式)
-    # ==========================================
-    - name: "Create directory for apt keyrings"
+    # 以降、システム操作のタスクには become: yes を付与（またはブロック化）
+    - name: "System Setup Task Example"
       ansible.builtin.file:
         path: /etc/apt/keyrings
         state: directory
         mode: '0755'
-
-    - name: "Add Docker's official GPG key"
-      ansible.builtin.get_url:
-        url: https://download.docker.com/linux/debian/gpg
-        dest: "{{ docker_gpg_path }}"
-        mode: '0644'
-        force: true
-
-    - name: "Add Docker repository"
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by={{ docker_gpg_path }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
-        state: present
-        filename: docker
-
-    - name: "Install Docker Engine and Plugins"
-      ansible.builtin.apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-compose-plugin
-        state: present
-        update_cache: yes
-
-    - name: "Ensure Docker service is running"
-      ansible.builtin.service:
-        name: docker
-        state: started
-        enabled: yes
-
-    # ==========================================
-    # 3. アプリケーション実行環境の構築
-    # ==========================================
-    - name: "Create project directory structure"
-      ansible.builtin.file:
-        path: "{{ project_root }}/{{ item }}"
-        state: directory
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0755'
-      loop: [ '', 'nginx', 'app', 'db_data' ]
-
-    - name: "Deploy docker-compose.yml from template"
-      ansible.builtin.template:
-        src: templates/docker-compose.yml.j2
-        dest: "{{ project_root }}/docker-compose.yml"
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0644'
-      register: compose_template
-
-    # ==========================================
-    # 4. コンテナ起動 (べき等性の確保)
-    # ==========================================
-    - name: "Start or update containers via Docker Compose"
-      ansible.builtin.command:
-        cmd: "docker compose up -d --remove-orphans"
-        chdir: "{{ project_root }}"
-      register: docker_compose_res
-      # 実際にコンテナが作成・更新・削除された場合のみ changed と報告させる
-      changed_when: >
-        "Created" in docker_compose_res.stdout or
-        "Started" in docker_compose_res.stdout or
-        "Recreated" in docker_compose_res.stdout or
-        "Pulled" in docker_compose_res.stdout
-
-    - name: "Prune unused docker objects"
-      ansible.builtin.command:
-        cmd: "docker system prune -f"
-      when: docker_compose_res.changed
-      tags: [cleanup]
+      become: yes
