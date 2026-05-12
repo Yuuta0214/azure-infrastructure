@@ -2,16 +2,13 @@
 # Azure Infrastructure Build Workflow
 # 
 # 【厳守事項】
-# 1. 実行範囲: 00_backend (リソースグループ、ストレージ、コンテナ) のみ
-# 2. 運用フロー: 
-#    - Plan & Check: workflow_dispatchにより手動実行（環境はブランチ名から自動判別）
-#    - Apply & Deploy: Plan完了後、GitHub上のEnvironment承認を経て手動実行
-# 3. 修正点: 不要な「inputs」を削除し、お手本の自動判別方式を復元
+# 1. 実行範囲: 00_backend のみに限定
+# 2. 運用フロー: Plan実行（自動判別） -> 手動承認 -> Apply実行
+# 3. 修正点: tfvarsのパス不一致によるエラーを解消
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  # 条件1: 手動で実行（お手本に合わせ選択肢 inputs は排除）
   workflow_dispatch:
 
 permissions:
@@ -29,7 +26,6 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      # お手本(main_20260512.yml)と同様、ブランチ名から環境を自動判別
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
@@ -46,18 +42,16 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
-      # 条件5: 00_backend のディレクトリのみを対象とする
       - name: '1-4. Terraform Init'
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # 条件3: ベストプラクティスに従い、環境別の変数ファイルを適用して実行計画を保存
+      # エラー箇所修正: 00_backend直下から見てenvファイルを正しく参照
       - name: '1-5. Terraform Plan'
         working-directory: ./my-project/00_backend
         run: |
-          terraform plan \
-            -var-file="../env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan
+          VAR_FILE="../env-${{ env.TARGET_ENV }}.tfvars"
+          terraform plan -var-file="$VAR_FILE" -out=tfplan
 
       - name: '1-6. Upload Plan Artifact'
         uses: actions/upload-artifact@v4
@@ -72,7 +66,7 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
-    # 条件2: 指定された環境(dev/prod)の承認ルールに基づき手動実行
+    # お手本同様、環境に応じた承認ゲート
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     runs-on: ubuntu-latest
     
@@ -106,7 +100,6 @@ jobs:
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # 条件4: 00_backendのリソースを確定した計画に基づいてデプロイ
       - name: '2-6. Terraform Apply'
         working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
