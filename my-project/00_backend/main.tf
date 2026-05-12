@@ -18,7 +18,7 @@ locals {
 # 2. 管理用リソースグループ (RG)
 # ==========================================
 resource "azurerm_resource_group" "mgmt_rg" {
-  name     = "rg-${local.mgmt_prefix}"
+  name     = "rg-${local.mgmt_prefix}" # 変数 mgmt_prefix を使う
   location = var.location
   tags     = local.common_tags
 }
@@ -63,6 +63,17 @@ resource "azurerm_storage_account" "tfstate_sa" {
 # ==========================================
 resource "azurerm_storage_container" "tfstate_container" {
   name                  = "tfstate"
-  storage_account_name  = azurerm_storage_account.tfstate_sa.name # azurerm 3.x 互換
-  container_access_type = "private" # 外部非公開
+  # 「.name」ではなく「.id」を使い、引数名も「storage_account_id」に変更
+  storage_account_id    = azurerm_storage_account.tfstate_sa.id
+  container_access_type = "private"
+}
+
+# ==========================================
+# 5. ストレージアカウント用リソースロック (追加)
+# ==========================================
+resource "azurerm_management_lock" "sa_lock" {
+  name       = "resourcelock-tfstate-sa"
+  scope      = azurerm_storage_account.tfstate_sa.id
+  lock_level = "CanNotDelete"
+  notes      = "このストレージアカウントにはTerraformのStateファイルが保存されているため、削除を禁止しています。"
 }
