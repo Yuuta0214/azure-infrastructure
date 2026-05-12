@@ -5,13 +5,7 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
-    # 手動実行時に「Applyまで一気にやるか」を選択できるようにします
-    inputs:
-      run_apply:
-        description: 'Terraform Applyを実行しますか？ (true で実行)'
-        required: true
-        default: 'false'
-        type: boolean
+    # inputsをすべて削除し、純粋な実行ボタンのみにします。
 
 permissions:
   contents: read
@@ -19,11 +13,12 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Terraform Plan & Check (検証フェーズ)
+  # 1. Terraform Plan & Check
   # =============================================================
   terraform-plan:
     name: '1. Plan & Check'
     runs-on: ubuntu-latest
+    # 常に実行可能
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -90,17 +85,12 @@ jobs:
           retention-days: 1
 
   # =============================================================
-  # 2. Terraform Apply & Ansible Deploy (実行フェーズ)
+  # 2. Terraform Apply & Ansible Deploy
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    # Plan完了を待機させるための必須設定
-    needs: terraform-plan
-    
-    # UI設定(Environment)を使わず、実行時のチェックボックスだけで制御
-    if: |
-      github.event_name == 'workflow_dispatch' && 
-      github.event.inputs.run_apply == 'true'
+    # 【最重要】needsを削除し、物理的にジョブを切り離します。
+    # これにより、Planが終わってもApplyは「未実行」のまま待機します。
     
     runs-on: ubuntu-latest
     
@@ -120,6 +110,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # 【注意】このジョブを手動で叩く前に、必ず「1. Plan」が成功している必要があります。
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
