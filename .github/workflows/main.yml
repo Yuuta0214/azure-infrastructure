@@ -4,7 +4,6 @@
 name: 'Azure Infrastructure Build'
 
 on:
-  # 【修正】手動実行時の「YES」入力を求める inputs 設定を完全に削除
   workflow_dispatch:
 
 permissions:
@@ -89,10 +88,12 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
-    # 【修正】独自の if 条件を削除し、環境設定による承認待ち（ボタン操作）のみで制御
-    # GitHub の Settings > Environments で "production-approval" を作成し、
-    # "Required reviewers" を設定することで承認ボタンが表示されます。
+    # 【最重要】GitHub Environmentsを利用し、ボタン押下（承認）を必須化
+    # GitHub上の「Settings > Environments」で "production-approval" を作成し
+    # 「Required reviewers」を有効にしていることを前提とします。
     environment: production-approval
+    # 【追加】Plan成功時、かつ手動実行時のみ動作するように厳密に制限
+    if: github.event_name == 'workflow_dispatch' && always() && needs.terraform-plan.result == 'success'
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

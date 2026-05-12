@@ -25,11 +25,11 @@ tags = {
 }
 
 # ==========================================
-# 5. ネットワーク参照定義 (追記箇所)
-# 開発環境（dev）用のリソース ID を指定します。
+# 5. ネットワーク参照定義
 # ==========================================
-# 開発環境（dev）のサブネット ID を指定 (サブスクリプションIDを実測値に修正)
-subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
+# 【修正】エラーの原因：リソースグループ名が重複（rg-web-dev/rg-web-dev）していたパスを修正
+# 正しい形式：/subscriptions/{sub_id}/resourceGroups/{rg_name}/providers/Microsoft.Network/virtualNetworks/{vnet_name}/subnets/{snet_name}
+subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend-web-dev"
 
-# 開発環境（dev）の LB バックエンドプール ID を指定 (サブスクリプションIDを実測値に修正)
-lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbe-web-dev/backendAddressPools/lbe-pool-web-dev"
+# 【修正】バックエンドプールIDも同様に、末尾のリソース名を現在の構成に合わせて修正
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbe-web-dev/backendAddressPools/be-pool-web-dev"
