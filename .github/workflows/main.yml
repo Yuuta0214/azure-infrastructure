@@ -1,15 +1,14 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (Refactored Version)
-# 構成: 00_backend / 01_network / 02_compute の分離環境に対応
+# Azure Infrastructure Build Workflow (Fixed Architecture Version)
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # 手動実行トリガー
+  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write # OIDC認証に必須
+  id-token: write
 
 jobs:
   # =============================================================
@@ -37,25 +36,40 @@ jobs:
       - name: 1-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # 【修正】working-directory を 02_compute に変更
-      - name: 1-4, Terraform Init
+      # 【最重要】initの前にBackendの物理箱が存在することを保証する
+      - name: 1-4, Ensure Backend Resources Exist
+        run: |
+          echo "Checking/Creating Resource Group for Terraform State..."
+          az group create --name "rg-storage-state" --location "japanwest"
+          
+          echo "Checking/Creating Storage Account..."
+          # 既に存在する場合はスキップされる
+          az storage account create \
+            --name "sttfstate20260506yuta" \
+            --resource-group "rg-storage-state" \
+            --location "japanwest" \
+            --sku Standard_LRS \
+            --allow-blob-public-access false
+
+          echo "Checking/Creating Storage Container..."
+          az storage container create \
+            --name "tfstate" \
+            --account-name "sttfstate20260506yuta" \
+            --auth-mode login
+
+      - name: 1-5, Terraform Init
         working-directory: ./my-project/02_compute
         run: terraform init -input=false
 
-      - name: 1-5, Terraform Plan
+      - name: 1-6, Terraform Plan
         id: plan
         working-directory: ./my-project/02_compute
         run: |
-          # ブランチに応じて変数ファイルを切り替え
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-dev.tfvars")
-          
-          # Apply用のバイナリ(tfplan)と確認用のテキスト(details)を出力
           terraform plan -var-file="$VAR_FILE" -input=false -out=tfplan
           terraform show -no-color tfplan > plan_details.txt
-          cat plan_details.txt
 
-      # 【重要】後続のApplyジョブにPlanファイルを渡すために保存
-      - name: 1-6, Upload Plan Artifact
+      - name: 1-7, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-artifacts
@@ -70,7 +84,7 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
-    environment: production-approval # GitHub上で承認ボタンを押すまで待機
+    environment: production-approval
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -88,7 +102,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【修正】Planジョブで作成した成果物を取得
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
@@ -98,26 +111,28 @@ jobs:
       - name: 2-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: 2-5, Terraform Init
+      # Apply側でも、再初期化の前にBackendが存在することを確認
+      - name: 2-5, Ensure Backend Resources Exist
+        run: |
+          az group create --name "rg-storage-state" --location "japanwest"
+          az storage container create --name "tfstate" --account-name "sttfstate20260506yuta" --auth-mode login
+
+      - name: 2-6, Terraform Init
         working-directory: ./my-project/02_compute
         run: terraform init -input=false
 
-      # 【修正】再計算(plan)せず、保存された tfplan をそのまま適用（安全・確実）
-      - name: 2-6, Terraform Apply
+      - name: 2-7, Terraform Apply
         working-directory: ./my-project/02_compute
         run: terraform apply -input=false tfplan
 
-      # 【修正】VM起動直後のSSH未反応による失敗を防ぐ待機処理
-      - name: 2-7, Wait for SSH Availability
+      - name: 2-8, Wait for SSH Availability
         shell: bash
         run: |
           VM_IP=$(cd ./my-project/02_compute && terraform output -raw ansible_host_ip)
           echo "Target VM IP: $VM_IP"
-          echo "Waiting for SSH port 22 to open..."
-          timeout 300 bash -c "until echo > /dev/tcp/$VM_IP/22; do sleep 10; done" || (echo "SSH Timeout" && exit 1)
+          timeout 300 bash -c "until echo > /dev/tcp/$VM_IP/22; do sleep 10; done" || exit 1
 
-      # 【修正】Ansibleの実行環境を構築してプロビジョニング開始
-      - name: 2-8, Ansible Provisioning
+      - name: 2-9, Ansible Provisioning
         working-directory: ./my-project/Ansible
         env:
           MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
@@ -125,10 +140,7 @@ jobs:
           ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
-          # 02_compute層から最新のデプロイ先IPを取得
           VM_IP=$(cd ../02_compute && terraform output -raw ansible_host_ip)
-          
-          # inventory.iniの変数定義に合わせて必要な情報を全て注入
           ansible-playbook -i inventory.ini site.yml \
             --extra-vars "target_ip=$VM_IP admin_username=$ADMIN_USER ansible_password=$ADMIN_PASS ansible_become_password=$ADMIN_PASS" \
             -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
