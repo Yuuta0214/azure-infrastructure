@@ -4,24 +4,15 @@
 # 【厳守事項】
 # 1. 実行範囲: 00_backend (リソースグループ、ストレージ、コンテナ) のみ
 # 2. 運用フロー: 
-#    - Step 1: 「Plan & Check」を手動(workflow_dispatch)で実行
-#    - Step 2: 内容確認後、GitHub上で承認を行うことで「Apply & Deploy」を手動実行
-# 3. 設計: Azure IaC ベストプラクティス（Plan結果のアーティファクト管理）に準拠
+#    - Plan & Check: workflow_dispatchにより手動実行（環境はブランチ名から自動判別）
+#    - Apply & Deploy: Plan完了後、GitHub上のEnvironment承認を経て手動実行
+# 3. 修正点: 不要な「inputs」を削除し、お手本の自動判別方式を復元
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  # 条件1: 「Plan＆Check」を手動で実行するためのトリガー
+  # 条件1: 手動で実行（お手本に合わせ選択肢 inputs は排除）
   workflow_dispatch:
-    inputs:
-      target_env:
-        description: 'デプロイ対象の環境 (dev/prod)'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
 
 permissions:
   contents: read
@@ -38,7 +29,8 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.event.inputs.target_env }}
+      # お手本(main_20260512.yml)と同様、ブランチ名から環境を自動判別
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
       - name: '1-1. Checkout Code'
@@ -59,7 +51,7 @@ jobs:
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # ベストプラクティス: 実行計画をファイルに出力し、Apply時に内容が乖離するのを防ぐ
+      # 条件3: ベストプラクティスに従い、環境別の変数ファイルを適用して実行計画を保存
       - name: '1-5. Terraform Plan'
         working-directory: ./my-project/00_backend
         run: |
@@ -67,11 +59,10 @@ jobs:
             -var-file="../env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan
 
-      # 出力したPlanファイルを後続ジョブに引き継ぐために保存
       - name: '1-6. Upload Plan Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-${{ env.TARGET_ENV }}
+          name: tfplan-artifacts
           path: ./my-project/00_backend/tfplan
           retention-days: 1
 
@@ -81,15 +72,15 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
+    # 条件2: 指定された環境(dev/prod)の承認ルールに基づき手動実行
+    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     runs-on: ubuntu-latest
-    # 条件2: 「手動」での実行（GitHub Environment の保護ルールを使用して承認ゲートを設ける）
-    environment: ${{ github.event.inputs.target_env }}
     
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.event.inputs.target_env }}
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
       - name: '2-1. Checkout Code'
@@ -100,25 +91,22 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: '2-3. Setup Terraform'
+      - name: '2-3. Download Plan Artifact'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-artifacts
+          path: ./my-project/00_backend
+
+      - name: '2-4. Setup Terraform'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
-      # Apply前にも必ず初期化が必要
-      - name: '2-4. Terraform Init'
+      - name: '2-5. Terraform Init'
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # 保存しておいたPlanファイルをダウンロード
-      - name: '2-5. Download Plan Artifact'
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ env.TARGET_ENV }}
-          path: ./my-project/00_backend
-
-      # 条件4: ここで実際にRG、ストレージ、コンテナが作成される
-      # ベストプラクティス: 保存されたtfplanファイルを指定することで、再計算なしでそのまま適用
+      # 条件4: 00_backendのリソースを確定した計画に基づいてデプロイ
       - name: '2-6. Terraform Apply'
         working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
