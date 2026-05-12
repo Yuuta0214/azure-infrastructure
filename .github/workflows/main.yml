@@ -37,21 +37,20 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: 1-4, Ensure Backend Resources Exist
-        # 高速化修正：存在確認を簡略化し、無駄な作成コマンドの実行を徹底的に排除
+        # 3分以上の遅延を排除し、かつ「ResourceGroupNotFound」を二度と起こさない確実なロジック
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           LOCATION="japanwest"
           CONTAINER_NAME="tfstate"
           
-          # リソースグループの存在を高速チェック
-          if ! az group exists --name "$RG_NAME"; then
+          # 【重要】az group show で確実に存在を確認。エラー出力を捨てて判定のみ利用
+          if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "$LOCATION"
           fi
           
-          # ストレージアカウントの存在を確認し、存在しない場合のみ作成（3分遅延の防止）
-          ST_EXISTS=$(az storage account list --query "[?name=='$STORAGE_ACCOUNT'].name" -o tsv)
-          if [ -z "$ST_EXISTS" ]; then
+          # ストレージアカウントの存在確認（あれば即スキップして高速化、なければ作成）
+          if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" &>/dev/null; then
             az storage account create --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" --location "$LOCATION" --sku Standard_LRS --allow-blob-public-access false --min-tls-version TLS1_2
           fi
           
@@ -115,11 +114,10 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: 2-5, Ensure Backend Resources Exist
-        # Apply時も同様の高速ロジックを適用
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
-          if ! az group exists --name "$RG_NAME"; then
+          if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "japanwest"
           fi
           if ! az storage container show --name "tfstate" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
@@ -132,8 +130,6 @@ jobs:
 
       - name: 2-7, Terraform Apply
         working-directory: ./my-project/02_compute
-        # ネットワークリソース作成直後の参照エラー（InvalidResourceReference）を防ぐため
-        # 確実にAzure側に反映されるまで、コマンドレベルでもリトライを考慮
         run: terraform apply -input=false tfplan
 
       - name: 2-8, Wait for SSH Availability
