@@ -5,7 +5,12 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
-    # 不要な inputs は一切含まず、純粋な実行ボタンのみの状態を維持します。
+    # 【修正：復活】チェックボックスによる実行制御を元に戻します。
+    inputs:
+      terraform_apply:
+        description: 'Terraform Applyを実行しますか？ (true で実行)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -82,13 +87,11 @@ jobs:
     # 【必須修正】needs を復活させ、Planとの並列暴走（image_fd3678.png）を物理的に阻止します。
     needs: terraform-plan
     
-    # 【最重要】「自動進行」を止めるための論理。
-    # github.run_attempt > 1 を条件にすることで、最初のボタン押下時は Skipped になります。
-    # これにより、人間がUI上で「再実行（Re-run）」ボタンを叩かない限り、絶対に動きません。
+    # 【最重要】チェックボックスがONの場合のみ実行を許可します。
+    # 以前のように、チェックを入れずに実行した場合は Skipped になり、勝手にデプロイされません。
     if: |
       github.event_name == 'workflow_dispatch' && 
-      needs.terraform-plan.result == 'success' &&
-      github.run_attempt > 1
+      github.event.inputs.terraform_apply == 'true'
     
     runs-on: ubuntu-latest
     
