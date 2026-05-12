@@ -23,14 +23,18 @@ resource "azurerm_resource_group" "mgmt_rg" {
   tags     = local.common_tags
 }
 
-# 【運用・保守のベストプラクティス：リソースロック】
-# 誤操作（terraform destroy 等）による State 保存場所の消失を物理的に防ぎます。
-resource "azurerm_management_lock" "rg_lock" {
-  name       = "resourcelock-backend-rg"
-  scope      = azurerm_resource_group.mgmt_rg.id
-  lock_level = "CanNotDelete"
-  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
-}
+# 【修正内容：権限エラー回避のためのコメントアウト】
+# ベストプラクティスとしてはリソースロックが推奨されますが、現在の実行アカウント
+# (github-actions-sp) に「User Access Administrator」以上の権限がないため、
+# 403 Forbidden エラーを回避するために一時的に無効化します。
+# ※権限昇格が可能になった段階で、以下のコメントを解除してください。
+
+# resource "azurerm_management_lock" "rg_lock" {
+#   name       = "resourcelock-backend-rg"
+#   scope      = azurerm_resource_group.mgmt_rg.id
+#   lock_level = "CanNotDelete"
+#   notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
+# }
 
 # ==========================================
 # 3. State保存用ストレージアカウント
