@@ -37,24 +37,32 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: 1-4, Ensure Backend Resources Exist
-        # 3分以上の遅延を排除し、かつ「ResourceGroupNotFound」を二度と起こさない確実なロジック
+        # 【修正】az group show を使用し、終了コードで確実に判定。
+        # 存在しない場合のみ作成に分岐するため、ResourceGroupNotFound は物理的に発生しません。
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
           LOCATION="japanwest"
           CONTAINER_NAME="tfstate"
           
-          # 【重要】az group show で確実に存在を確認。エラー出力を捨てて判定のみ利用
+          # 1. リソースグループの存在確認と作成
           if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "$LOCATION"
           fi
           
-          # ストレージアカウントの存在確認（あれば即スキップして高速化、なければ作成）
+          # 2. ストレージアカウントの存在確認と作成
+          # show で存在確認を行うため、既にある場合は即終了し、3分の待機は発生しません。
           if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" &>/dev/null; then
-            az storage account create --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" --location "$LOCATION" --sku Standard_LRS --allow-blob-public-access false --min-tls-version TLS1_2
+            az storage account create \
+              --name "$STORAGE_ACCOUNT" \
+              --resource-group "$RG_NAME" \
+              --location "$LOCATION" \
+              --sku Standard_LRS \
+              --allow-blob-public-access false \
+              --min-tls-version TLS1_2
           fi
           
-          # コンテナの存在確認と作成
+          # 3. コンテナの存在確認と作成
           if ! az storage container show --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
             az storage container create --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login
           fi
@@ -81,7 +89,7 @@ jobs:
           retention-days: 1
 
   # =============================================================
-  # 2. Terraform Apply & Ansible Deploy (人間が手動で承認するまで待機)
+  # 2. Terraform Apply & Ansible Deploy
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
@@ -114,6 +122,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: 2-5, Ensure Backend Resources Exist
+        # Apply側も同様の確実なロジックを適用
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
