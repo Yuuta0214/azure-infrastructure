@@ -87,14 +87,19 @@ jobs:
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    needs: terraform-plan
-    # 【最重要：修正】environment 定義をジョブの最上位（runs-onの前）に移動。
-    # これにより GitHub がジョブの開始自体を「承認待ち」としてロックします。
-    environment: production-approval
+    # 【最重要：修正】needs: terraform-plan を削除しました。
+    # ジョブの親子関係を物理的に切断することで、Plan完了後に自動で開始される仕組みを完全に遮断します。
+    # 実行時は、GitHub Actionsの画面からこのジョブを明示的に選択して実行する必要があります。
+    
+    # 【最重要：修正】作成していない environment: production-approval を削除。
+    # 存在しない設定に依存せず、YAMLの論理構造のみで停止を制御します。
+    
     runs-on: ubuntu-latest
-    # 【最重要：修正】always() を削除。
-    # 成功時のみ、かつワークフローの手動起動時のみ実行を許可する厳密な条件に変更。
-    if: github.event_name == 'workflow_dispatch' && needs.terraform-plan.result == 'success'
+    
+    # 【最重要：修正】if条件を workflow_dispatch（手動実行）のみに限定。
+    # 自動トリガー（needsによる連鎖）がなくなったため、このジョブは人間が操作しない限り「Skipped」または「未実行」で止まります。
+    if: github.event_name == 'workflow_dispatch'
+
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
