@@ -28,8 +28,8 @@ tags = {
 # 5. ネットワーク参照定義 (追記箇所)
 # 開発環境（dev）用のリソース ID を指定します。
 # ==========================================
-# 開発環境（dev）のサブネット ID を指定
-subnet_id          = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
+# 開発環境（dev）のサブネット ID を指定 (サブスクリプションIDを実測値に修正)
+subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
 
-# 開発環境（dev）の LB バックエンドプール ID を指定
-lb_backend_pool_id = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbe-web-dev/backendAddressPools/lbe-pool-web-dev"
+# 開発環境（dev）の LB バックエンドプール ID を指定 (サブスクリプションIDを実測値に修正)
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbe-web-dev/backendAddressPools/lbe-pool-web-dev"

@@ -27,10 +27,9 @@ tags = {
 # ==========================================
 # 5. ネットワーク参照定義 (追記箇所)
 # 01_network で作成されたリソースの ID を直接指定します。
-# これにより、別フォルダのファイルを読み込むことなく動作を完結させます。
 # ==========================================
-# 本番環境（prod）のサブネット ID を指定
-subnet_id          = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-prod/providers/Microsoft.Network/virtualNetworks/vnet-web-prod/subnets/snet-backend"
+# 本番環境（prod）のサブネット ID を指定 (サブスクリプションIDを実測値に修正)
+subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/virtualNetworks/vnet-web-prod/subnets/snet-backend"
 
-# 本番環境（prod）の LB バックエンドプール ID を指定
-lb_backend_pool_id = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbe-web-prod/backendAddressPools/lbe-pool-web-prod"
+# 本番環境（prod）の LB バックエンドプール ID を指定 (サブスクリプションIDを実測値に修正)
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbe-web-prod/backendAddressPools/lbe-pool-web-prod"
