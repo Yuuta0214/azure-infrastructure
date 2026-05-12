@@ -87,18 +87,17 @@ jobs:
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    # 【最重要：修正】needs: terraform-plan を削除しました。
-    # ジョブの親子関係を物理的に切断することで、Plan完了後に自動で開始される仕組みを完全に遮断します。
-    # 実行時は、GitHub Actionsの画面からこのジョブを明示的に選択して実行する必要があります。
+    # 【修正】needs を復活。これにより Plan 完了まで Apply は開始されません。
+    needs: terraform-plan
     
-    # 【最重要：修正】作成していない environment: production-approval を削除。
-    # 存在しない設定に依存せず、YAMLの論理構造のみで停止を制御します。
+    # 【重要】GitHubのリポジトリ設定「Settings > Environments」で作成した環境名を指定します。
+    # ここに「Required reviewers」を設定することで、実行前にボタンでの承認が必須となります。
+    environment: production-approval
     
     runs-on: ubuntu-latest
     
-    # 【最重要：修正】if条件を workflow_dispatch（手動実行）のみに限定。
-    # 自動トリガー（needsによる連鎖）がなくなったため、このジョブは人間が操作しない限り「Skipped」または「未実行」で止まります。
-    if: github.event_name == 'workflow_dispatch'
+    # 【修正】Planジョブが成功した時のみ実行されるよう制御します。
+    if: github.event_name == 'workflow_dispatch' && needs.terraform-plan.result == 'success'
 
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -116,6 +115,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # 【修正】依存関係が正しく設定されたため、ここで確実に Artifact がダウンロード可能になります。
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
