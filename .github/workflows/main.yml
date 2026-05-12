@@ -5,6 +5,13 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
+    # 手動実行時に「Applyまで一気にやるか」を選択できるようにします
+    inputs:
+      run_apply:
+        description: 'Terraform Applyを実行しますか？ (true で実行)'
+        required: true
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: read
@@ -87,18 +94,16 @@ jobs:
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    # 【修正】needs を復活。これにより Plan 完了まで Apply は開始されません。
+    # Plan完了を待機させるための必須設定
     needs: terraform-plan
     
-    # 【重要】GitHubのリポジトリ設定「Settings > Environments」で作成した環境名を指定します。
-    # ここに「Required reviewers」を設定することで、実行前にボタンでの承認が必須となります。
-    environment: production-approval
+    # UI設定(Environment)を使わず、実行時のチェックボックスだけで制御
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.run_apply == 'true'
     
     runs-on: ubuntu-latest
     
-    # 【修正】Planジョブが成功した時のみ実行されるよう制御します。
-    if: github.event_name == 'workflow_dispatch' && needs.terraform-plan.result == 'success'
-
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -115,7 +120,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【修正】依存関係が正しく設定されたため、ここで確実に Artifact がダウンロード可能になります。
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
