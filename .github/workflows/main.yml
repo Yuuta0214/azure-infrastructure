@@ -1,29 +1,19 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow
-# 運用フロー: featureで検証完了後、mainにマージして本番反映
+# 運用フロー: 
+#   - feature/azure-setup ブランチ実行時 -> 自動で dev 環境を構築
+#   - main ブランチ実行時 -> 自動で prod 環境を構築
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch:
-    inputs:
-      target_env:
-        description: 'デプロイ対象の環境 (dev/prod)'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - dev
-          - prod
+  workflow_dispatch: # ボタンを押すだけで、環境選択は不要
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  # =============================================================
-  # 1. Plan & Check (検証・本番共通)
-  # =============================================================
   terraform-plan:
     name: '1. Plan & Check (00_backend)'
     runs-on: ubuntu-latest
@@ -31,6 +21,8 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # ブランチ名によって変数を自動決定
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
       - name: '1-1. Checkout Code'
@@ -53,34 +45,31 @@ jobs:
         run: terraform init
 
       - name: '1-5. Terraform Plan'
-        id: plan
         working-directory: ./my-project/00_backend
         run: |
           terraform plan \
-            -var-file="env-${{ github.event.inputs.target_env }}.tfvars" \
+            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan
         
       - name: '1-6. Upload Plan Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-${{ github.event.inputs.target_env }}
+          name: tfplan-${{ env.TARGET_ENV }}
           path: ./my-project/00_backend/tfplan
           retention-days: 1
 
-  # =============================================================
-  # 2. Apply & Deploy (手動承認ゲート)
-  # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
     runs-on: ubuntu-latest
-    # 【安全設計】Environmentによる承認待ちを強制
-    environment: ${{ github.event.inputs.target_env }}
+    # ブランチに基づいたEnvironment（dev/prod）の承認を要求
+    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     
     env:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
       - name: '2-1. Checkout Code'
@@ -105,11 +94,10 @@ jobs:
       - name: '2-5. Download Plan Artifact'
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-${{ github.event.inputs.target_env }}
+          name: tfplan-${{ env.TARGET_ENV }}
           path: ./my-project/00_backend
 
       - name: '2-6. Terraform Apply'
-        # どのブランチでも承認さえあれば実行を許可（検証用・本番用の区別をEnvironmentで行う）
         if: success()
         working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
