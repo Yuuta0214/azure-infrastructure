@@ -5,12 +5,7 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
-    # 【修正：復活】チェックボックスによる実行制御を元に戻します。
-    inputs:
-      terraform_apply:
-        description: 'Terraform Applyを実行しますか？ (true で実行)'
-        type: boolean
-        default: false
+    # Plan実行時には余計な入力は表示させません。
 
 permissions:
   contents: read
@@ -84,14 +79,11 @@ jobs:
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    # 【必須修正】needs を復活させ、Planとの並列暴走（image_fd3678.png）を物理的に阻止します。
     needs: terraform-plan
     
-    # 【最重要】チェックボックスがONの場合のみ実行を許可します。
-    # 以前のように、チェックを入れずに実行した場合は Skipped になり、勝手にデプロイされません。
-    if: |
-      github.event_name == 'workflow_dispatch' && 
-      github.event.inputs.terraform_apply == 'true'
+    # 【最重要：修正】この environment 指定により、Applyのタイミングで
+    # 画像 image_fcb673.png のような承認チェックボックスが表示されます。
+    environment: 'production'
     
     runs-on: ubuntu-latest
     
@@ -111,7 +103,6 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 依存関係（needs）の復活により、Artifactが確実に存在した状態で実行されます。
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
