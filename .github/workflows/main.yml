@@ -1,45 +1,49 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow
-# 運用フロー: 
-#   - feature/azure-setup ブランチ実行時 -> 自動で dev 環境を構築
-#   - main ブランチ実行時 -> 自動で prod 環境を構築
+# 運用ルール:
+# - feature/azure-setup ブランチ実行時 -> 自動で dev 環境
+# - main ブランチ実行時 -> 自動で prod 環境
+# - 認証: 実績のある secrets.AZURE_CREDENTIALS (JSON) 方式を使用
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch: # ボタンを押すだけで、環境選択は不要
+  workflow_dispatch: # 環境選択不要、実行ボタンのみ
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
+  # =============================================================
+  # 1. Terraform Plan & Check (00_backend)
+  # =============================================================
   terraform-plan:
     name: '1. Plan & Check (00_backend)'
     runs-on: ubuntu-latest
     env:
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      # ブランチ名によって変数を自動決定
+      # ブランチによる環境の自動判別
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
       - name: '1-1. Checkout Code'
         uses: actions/checkout@v4
 
+      # 実績のある creds 方式に差し戻し
       - name: '1-2. Azure Login'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: '1-3. Setup Terraform'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
+      # 実際のディレクトリ階層を指定
       - name: '1-4. Terraform Init'
         working-directory: ./my-project/00_backend
         run: terraform init
@@ -58,16 +62,19 @@ jobs:
           path: ./my-project/00_backend/tfplan
           retention-days: 1
 
+  # =============================================================
+  # 2. Terraform Apply & Deploy (00_backend)
+  # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
     runs-on: ubuntu-latest
-    # ブランチに基づいたEnvironment（dev/prod）の承認を要求
+    # ブランチに応じた Environment で承認を待機
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     
     env:
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
@@ -78,9 +85,7 @@ jobs:
       - name: '2-2. Azure Login'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: '2-3. Setup Terraform'
         uses: hashicorp/setup-terraform@v3
