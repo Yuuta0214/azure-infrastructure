@@ -5,7 +5,7 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
-    # inputsをすべて削除し、純粋な実行ボタンのみにします。
+    # 不要な inputs は一切含まず、純粋な実行ボタンのみの状態を維持します。
 
 permissions:
   contents: read
@@ -13,12 +13,11 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Terraform Plan & Check
+  # 1. Terraform Plan & Check (常に最初に実行)
   # =============================================================
   terraform-plan:
     name: '1. Plan & Check'
     runs-on: ubuntu-latest
-    # 常に実行可能
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -44,21 +43,12 @@ jobs:
           RG_NAME="rg-storage-state"
           LOCATION="japanwest"
           CONTAINER_NAME="tfstate"
-
           if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "$LOCATION"
           fi
-
           if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" &>/dev/null; then
-            az storage account create \
-              --name "$STORAGE_ACCOUNT" \
-              --resource-group "$RG_NAME" \
-              --location "$LOCATION" \
-              --sku Standard_LRS \
-              --allow-blob-public-access false \
-              --min-tls-version TLS1_2 
+            az storage account create --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" --location "$LOCATION" --sku Standard_LRS --allow-blob-public-access false --min-tls-version TLS1_2 
           fi
-
           if ! az storage container show --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
             az storage container create --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login
           fi
@@ -85,12 +75,20 @@ jobs:
           retention-days: 1
 
   # =============================================================
-  # 2. Terraform Apply & Ansible Deploy
+  # 2. Terraform Apply & Ansible Deploy (人間が手動で再実行するまで待機)
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy'
-    # 【最重要】needsを削除し、物理的にジョブを切り離します。
-    # これにより、Planが終わってもApplyは「未実行」のまま待機します。
+    # 【必須修正】needs を復活させ、Planとの並列暴走（image_fd3678.png）を物理的に阻止します。
+    needs: terraform-plan
+    
+    # 【最重要】「自動進行」を止めるための論理。
+    # github.run_attempt > 1 を条件にすることで、最初のボタン押下時は Skipped になります。
+    # これにより、人間がUI上で「再実行（Re-run）」ボタンを叩かない限り、絶対に動きません。
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      needs.terraform-plan.result == 'success' &&
+      github.run_attempt > 1
     
     runs-on: ubuntu-latest
     
@@ -110,7 +108,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 【注意】このジョブを手動で叩く前に、必ず「1. Plan」が成功している必要があります。
+      # 依存関係（needs）の復活により、Artifactが確実に存在した状態で実行されます。
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
