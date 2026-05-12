@@ -1,11 +1,5 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow
-# 
-# 1. 実行範囲: 00_backend のみに限定
-# 2. 実行条件: 手動起動 (workflow_dispatch)
-# 3. 環境判別: ブランチ名から自動判別 (main=prod, others=dev)
-# 4. 承認ゲート: Environment 設定による手動承認
-# 5. パス修正: 00_backend直下のtfvarsを参照
+# Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
@@ -27,7 +21,6 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      # ブランチ名から自動でターゲット環境を決定
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
@@ -44,18 +37,26 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
-      - name: 1-4, Terraform Init
+      # お手本 に倣い、Terraform実行前にCLIでリソースグループの存在を確認
+      - name: 1-4, Pre-Check Resource Group
+        run: |
+          RG_NAME="rg-web-${{ env.TARGET_ENV }}-mgmt"
+          if ! az group show --name "$RG_NAME" &>/dev/null; then
+            echo "Resource Group $RG_NAME not found. Terraform will attempt to create it."
+          fi
+
+      - name: 1-5, Terraform Init
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      - name: 1-5, Terraform Plan
+      - name: 1-6, Terraform Plan
         working-directory: ./my-project/00_backend
         run: |
           terraform plan \
             -var-file="./env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan
 
-      - name: 1-6, Upload Plan Artifact
+      - name: 1-7, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-artifacts
@@ -68,8 +69,8 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
-    # GitHub Environment を使用した承認ゲート
-    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    # お手本 の環境設定を遵守（GitHub上の承認ゲート）
+    environment: 'production'
     runs-on: ubuntu-latest
     
     env:
@@ -102,6 +103,14 @@ jobs:
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      - name: 2-6, Terraform Apply
+      # お手本 にあった、デプロイ前の最終チェックロジック
+      - name: 2-6, Pre-Deploy Safety Check
+        run: |
+          if [ ! -f "./my-project/00_backend/tfplan" ]; then
+            echo "Error: tfplan not found."
+            exit 1
+          fi
+
+      - name: 2-7, Terraform Apply
         working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
