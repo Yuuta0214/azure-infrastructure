@@ -2,13 +2,16 @@
 # Azure Infrastructure Build Workflow
 # 
 # 【厳守事項】
-# 1. 実行範囲: 00_backend のみに限定
-# 2. 運用フロー: Plan実行（自動判別） -> 手動承認 -> Apply実行
-# 3. 修正点: tfvarsのパス不一致によるエラーを解消
+# 1. 実行範囲: 00_backend (RG, Storage, Container) のみに限定
+# 2. 運用フロー: 
+#    - Plan & Check: ボタン押下で実行（ブランチから環境を自動判別）
+#    - Apply & Deploy: GitHub上のEnvironment承認後に実行
+# 3. 修正点: 変数ファイル(tfvars)の参照パスを00_backend用に修正
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
+  # 余計な inputs は排除し、お手本通り workflow_dispatch のみ
   workflow_dispatch:
 
 permissions:
@@ -26,6 +29,7 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # お手本に基づき、ブランチ名から環境を自動決定
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
@@ -46,12 +50,13 @@ jobs:
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # エラー箇所修正: 00_backend直下から見てenvファイルを正しく参照
+      # 修正点: 00_backendから見て親ディレクトリにある env-***.tfvars を確実に指定
       - name: '1-5. Terraform Plan'
         working-directory: ./my-project/00_backend
         run: |
-          VAR_FILE="../env-${{ env.TARGET_ENV }}.tfvars"
-          terraform plan -var-file="$VAR_FILE" -out=tfplan
+          terraform plan \
+            -var-file="../env-${{ env.TARGET_ENV }}.tfvars" \
+            -out=tfplan
 
       - name: '1-6. Upload Plan Artifact'
         uses: actions/upload-artifact@v4
@@ -66,7 +71,7 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
     needs: terraform-plan
-    # お手本同様、環境に応じた承認ゲート
+    # お手本通り、Environment による手動承認ゲートを維持
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     runs-on: ubuntu-latest
     
