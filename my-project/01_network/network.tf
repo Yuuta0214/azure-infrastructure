@@ -33,6 +33,14 @@ resource "azurerm_subnet" "backend" {
   depends_on = [azurerm_virtual_network.vnet]
 }
 
+# 【ベストプラクティス：追加】
+# Subnet作成完了後、Azure内部のAPIに情報が完全に伝搬されるまで30秒待機
+# これにより、compute.tf 側での NIC 作成時の参照エラー（400 Bad Request）を確実に防ぎます
+resource "time_sleep" "wait_for_subnet" {
+  depends_on      = [azurerm_subnet.backend]
+  create_duration = "30s"
+}
+
 # ==========================================
 # 7. パブリックIP（ロードバランサー用）
 # ==========================================

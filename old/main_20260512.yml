@@ -1,0 +1,163 @@
+##########################################################################
+# Azure Infrastructure Build Workflow
+##########################################################################
+name: 'Azure Infrastructure Build'
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # =============================================================
+  # 1. Terraform Plan & Check (常に最初に実行)
+  # =============================================================
+  terraform-plan:
+    name: '1. Plan & Check'
+    runs-on: ubuntu-latest
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+
+    steps:
+      - name: 1-1, Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 1-2, Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 1-3, Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 1-4, Ensure Backend Resources Exist
+        # 【修正】az group show を使用し、終了コードで確実に判定。
+        # 存在しない場合のみ作成に分岐するため、ResourceGroupNotFound は物理的に発生しません。
+        run: |
+          STORAGE_ACCOUNT="sttfstate20260506yuta"
+          RG_NAME="rg-storage-state"
+          LOCATION="japanwest"
+          CONTAINER_NAME="tfstate"
+          
+          # 1. リソースグループの存在確認と作成
+          if ! az group show --name "$RG_NAME" &>/dev/null; then
+            az group create --name "$RG_NAME" --location "$LOCATION"
+          fi
+          
+          # 2. ストレージアカウントの存在確認と作成
+          # show で存在確認を行うため、既にある場合は即終了し、3分の待機は発生しません。
+          if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" &>/dev/null; then
+            az storage account create \
+              --name "$STORAGE_ACCOUNT" \
+              --resource-group "$RG_NAME" \
+              --location "$LOCATION" \
+              --sku Standard_LRS \
+              --allow-blob-public-access false \
+              --min-tls-version TLS1_2
+          fi
+          
+          # 3. コンテナの存在確認と作成
+          if ! az storage container show --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
+            az storage container create --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login
+          fi
+
+      - name: 1-5, Terraform Init
+        working-directory: ./my-project/02_compute
+        run: terraform init -input=false
+
+      - name: 1-6, Terraform Plan
+        id: plan
+        working-directory: ./my-project/02_compute
+        run: |
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-dev.tfvars")
+          terraform plan -var-file="$VAR_FILE" -input=false -out=tfplan
+          terraform show -no-color tfplan > plan_details.txt
+
+      - name: 1-7, Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-artifacts
+          path: |
+            ./my-project/02_compute/tfplan
+            ./my-project/02_compute/plan_details.txt
+          retention-days: 1
+
+  # =============================================================
+  # 2. Terraform Apply & Ansible Deploy
+  # =============================================================
+  terraform-apply:
+    name: '2. Apply & Deploy'
+    needs: terraform-plan
+    environment: 'production'
+    runs-on: ubuntu-latest
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+
+    steps:
+      - name: 2-1, Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2-2, Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 2-3, Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-artifacts
+          path: ./my-project/02_compute
+
+      - name: 2-4, Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: 2-5, Ensure Backend Resources Exist
+        # Apply側も同様の確実なロジックを適用
+        run: |
+          STORAGE_ACCOUNT="sttfstate20260506yuta"
+          RG_NAME="rg-storage-state"
+          if ! az group show --name "$RG_NAME" &>/dev/null; then
+            az group create --name "$RG_NAME" --location "japanwest"
+          fi
+          if ! az storage container show --name "tfstate" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
+            az storage container create --name "tfstate" --account-name "$STORAGE_ACCOUNT" --auth-mode login
+          fi
+
+      - name: 2-6, Terraform Init
+        working-directory: ./my-project/02_compute
+        run: terraform init -input=false
+
+      - name: 2-7, Terraform Apply
+        working-directory: ./my-project/02_compute
+        run: terraform apply -input=false tfplan
+
+      - name: 2-8, Wait for SSH Availability
+        shell: bash
+        run: |
+          VM_IP=$(cd ./my-project/02_compute && terraform output -raw ansible_host_ip)
+          echo "Target VM IP: $VM_IP"
+          timeout 300 bash -c "until echo > /dev/tcp/$VM_IP/22; do sleep 10; done" || exit 1
+
+      - name: 2-9, Ansible Provisioning
+        working-directory: ./my-project/Ansible
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: |
+          VM_IP=$(cd ../02_compute && terraform output -raw ansible_host_ip)
+          ansible-playbook -i inventory.ini site.yml \
+            --extra-vars "target_ip=$VM_IP admin_username=$ADMIN_USER ansible_password=$ADMIN_PASS ansible_become_password=$ADMIN_PASS" \
+            -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
+            -e "mysql_password=$MYSQL_PASSWORD"
