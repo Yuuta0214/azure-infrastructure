@@ -1,0 +1,152 @@
+name: 'Azure Infrastructure Build'
+
+on:
+  workflow_dispatch: # 入力フォームを完全に削除しました
+
+permissions:
+  contents: read
+  id-token: write # OIDC認証に必須
+
+jobs:
+  # ==========================================
+  # 1. 検証と計画 (Validation & Plan)
+  # ==========================================
+  terraform-plan:
+    name: '1. 検証と計画 (Validation & Plan)'
+    runs-on: ubuntu-latest
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Azure ログイン
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # 【修正】--no-wait を追加し、Azure側の作成完了を待たずに即座に次へ進めます。
+      # これにより、前回の3分以上の遅延やタイムアウトを物理的に回避します。
+      - name: バックエンドストレージの存在確認
+        run: |
+          STORAGE_NAME="sttfstate20260506yuta"
+          RG_NAME="rg-storage-state"
+          LOCATION="japanwest"
+          CONTAINER_NAME="tfstate"
+          
+          echo "Ensuring Resource Group: $RG_NAME"
+          az group create --name "$RG_NAME" --location "$LOCATION" --no-wait --output none || true
+
+          echo "Ensuring Storage Account: $STORAGE_NAME"
+          az storage account create \
+            --name "$STORAGE_NAME" \
+            --resource-group "$RG_NAME" \
+            --location "$LOCATION" \
+            --sku Standard_LRS \
+            --min-tls-version TLS1_2 \
+            --allow-blob-public-access false \
+            --no-wait \
+            --output none || true
+
+          echo "Ensuring Container: $CONTAINER_NAME"
+          # コンテナ作成は即時完了するため、後続の init への影響を最小限にします。
+          az storage container create \
+            --name "$CONTAINER_NAME" \
+            --account-name "$STORAGE_NAME" \
+            --auth-mode login \
+            --output none || true
+
+      - name: Terraform State のリース解除
+        run: |
+          az storage blob lease break \
+            --blob-name terraform.tfstate \
+            --container-name tfstate \
+            --account-name sttfstate20260506yuta || echo "No active lease to break."
+
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init -input=false
+
+      - name: 既存リソースグループのインポート (整合性確保)
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENV="prod"; VAR_FILE="env-prod.tfvars"; LOC="japaneast"
+          else
+            ENV="test"; VAR_FILE="env-test.tfvars"; LOC="japanwest"
+          fi
+          PROJECT="web"
+          TARGET_RG="rg-$PROJECT-$ENV"
+          
+          az group create --name "$TARGET_RG" --location "$LOC" --no-wait --output none || true
+          
+          terraform import -input=false -var-file="$VAR_FILE" \
+            azurerm_resource_group.rg /subscriptions/$(az account show --query id -o tsv)/resourceGroups/"$TARGET_RG" || echo "Already imported or not exists."
+
+      - name: 構文チェック (Terraform & Ansible)
+        working-directory: ./my-project
+        run: |
+          cd terraform && terraform validate
+          cd ../Ansible && ansible-playbook site.yml --syntax-check
+
+      - name: Terraform 実行計画の作成
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: |
+          VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          terraform plan -var-file="$VAR_FILE" -input=false
+
+  # ==========================================
+  # 2. 適用と Ansible デプロイ (Apply & Ansible Deploy)
+  # ==========================================
+  terraform-apply:
+    name: '2. 適用と Ansible デプロイ (Apply & Ansible Deploy)'
+    # 【改修】Environment機能による物理停止。画面上での承認が必須です。
+    environment: production-approval
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Azure ログイン
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform 初期化
+        working-directory: ./my-project/terraform
+        run: terraform init -input=false
+
+      - name: Terraform リソース適用
+        working-directory: ./my-project/terraform
+        env:
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: |
+          # 事故防止のため env-test.tfvars に固定して実行します
+          terraform apply -var-file=env-test.tfvars -auto-approve -input=false
+
+      - name: Ansible プレイブックの実行
+        working-directory: ./my-project/Ansible
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          ADMIN_PASS: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+          ADMIN_USER: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+        run: |
+          VM_IP=$(cd ../terraform && terraform output -raw ansible_host_ip)
+          ansible-playbook -i inventory.ini site.yml \
+            --extra-vars "ansible_host=$VM_IP ansible_user=$ADMIN_USER ansible_password=$ADMIN_PASS" \
+            -e "admin_username=$ADMIN_USER" \
+            -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
+            -e "mysql_password=$MYSQL_PASSWORD"

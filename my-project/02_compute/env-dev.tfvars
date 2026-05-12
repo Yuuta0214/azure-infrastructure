@@ -1,8 +1,13 @@
 # ==========================================
 # 1. 基盤・環境定義
 # ==========================================
+# リソースをデプロイするリージョンを指定
 location     = "japanwest"
-environment  = "test"
+
+# 実行環境の識別子（prod/dev）。リソース名の命名やバリデーションに使用
+environment  = "dev"
+
+# システムの基本名称。リソース名の接頭辞（Prefix）として利用
 project_name = "web"
 
 # ==========================================
@@ -22,9 +27,6 @@ ssh_public_key = ""
 # 4. メタデータ定義 (運用管理用)
 # ==========================================
 tags = {
-  Environment  = "test"
-  Project      = "web"
-  BusinessUnit = "Dev-Test"
-  CostCenter   = "WEB-102"
-  ManagedBy    = "Terraform"
+  BusinessUnit = "Production-dev" # 事業部門やチーム名
+  CostCenter   = "WEB-201"        # コスト配分用の予算コード
 }

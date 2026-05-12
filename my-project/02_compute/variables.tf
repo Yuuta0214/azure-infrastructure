@@ -4,16 +4,17 @@
 variable "location" {
   description = "リソースを配置するリージョン"
   type        = string
-  # defaultは設定せず、tfvarsでの指定を必須にします
+  # 【整合性確認】01_network側のリソースグループ等の配置場所と一致させる必要があります
 }
 
 variable "environment" {
-  description = "実行環境 (prod または test)"
+  description = "実行環境 (prod または dev)"
   type        = string
 
+  # 【バリデーション】env-dev.tfvars / env-prod.tfvars の構成と一致させています
   validation {
-    condition     = contains(["prod", "test"], var.environment)
-    error_message = "環境名は 'prod' または 'test' のいずれかを指定してください。"
+    condition     = contains(["prod", "dev"], var.environment)
+    error_message = "環境名は 'prod' または 'dev' のいずれかを指定してください。"
   }
 }
 
@@ -22,6 +23,7 @@ variable "project_name" {
   type        = string
   default     = "web"
 
+  # 【命名規則】Azureリソース名の制限（英小文字・数字・ハイフン）に準拠させています
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
     error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。"
@@ -34,7 +36,7 @@ variable "project_name" {
 variable "vm_size" {
   description = "VMのサイズ（SKU）"
   type        = string
-  # リージョンごとの在庫（SkuNotAvailable）に柔軟に対応するため、tfvarsで明示させます
+  # 【可用性対策】在庫状況によるデプロイエラーを防ぐため、tfvars側で明示的に指定します
 }
 
 # ==========================================
@@ -44,8 +46,9 @@ variable "admin_username" {
   description = "VMの管理者ユーザー名"
   type        = string
 
+  # 【セキュリティ】Azure Linux VM で予約されている、または推測されやすい名称を排除しています
   validation {
-    condition     = !contains(["admin", "root", "test", "user", "azure", "administrator"], var.admin_username)
+    condition     = !contains(["admin", "root", "dev", "user", "azure", "administrator"], var.admin_username)
     error_message = "セキュリティおよびAzureの制限により、これら特定の名称はユーザー名に使用できません。"
   }
 }
@@ -53,8 +56,9 @@ variable "admin_username" {
 variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
-  sensitive   = true
+  sensitive   = true # 【秘匿情報】実行ログにパスワードが表示されないよう保護しています
 
+  # 【セキュリティ】Azureの最小要件（12文字以上）を満たすよう制限しています
   validation {
     condition     = length(var.admin_password) >= 12
     error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
@@ -73,7 +77,8 @@ variable "ssh_public_key" {
 variable "tags" {
   description = "すべてのリソースに付与する共通タグ（BusinessUnit, Project等）"
   type        = map(string)
+  # 【設計上の注意】ManagedBy等の固定値は main.tf の locals で自動マージされるため、
+  # ここではプロジェクト固有のタグを受け取れるよう空のマップをデフォルトにしています
   default     = {
-    ManagedBy = "Terraform"
   }
 }

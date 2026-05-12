@@ -1,51 +1,234 @@
+#################ここからmain.yml（Plan & Check）コード#################
+# GitHubの「Actions」タブに表示されるワークフローの名前
 name: 'Azure Infrastructure Build'
 
+# 「手動実行」を有効にするトリガー設定
 on:
   workflow_dispatch:
 
+#このワークフローに与える「GitHub内での権限」の最小化設定
 permissions:
-  contents: read
-  id-token: write
+  contents: read                                                # リポジトリのコードを読み取る権限checkout（コード取得）※最低限必要
+  id-token: write                                               # OIDCトークンを発行する権限　※最重要項目
 
 jobs:
   terraform-plan:
-    name: '1. Plan'
-    runs-on: ubuntu-latest
+    name: '1. Plan & Check'                                     # これがJob全体の大きな看板になります
+    
+    # 【ルール】runs-onは必ずここ。stepsの中には入れられません。(作法)
+    runs-on: ubuntu-latest                                      # 作業員の作成 ※作成自体はGitHubが自動で行う
     env:
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }} # Azure上サブスクリプションの設定
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}             # ログイン用の鍵
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}             # ログイン用の組織ID
 
     steps:
-      - name: Checkout Code
+#====1. 環境セットアップ（Runner Setup）====#
+      # 関連ファイル：なし
+      # 1-1：作業員（Ubuntu）の起動確認
+      - name: 1-1,Ubuntu up Check
+        run: echo "Runner is ready." 
+
+      # 1-2：「Terraform/Ansible」コードの取得
+      # 関連ファイル：なし
+      - name: 1-2,Checkout Code
         uses: actions/checkout@v4
 
-      - name: Azure Login
+      # 1-3：作業員（Ubuntu）のコード実行可否確認
+      # 関連ファイル：なし
+      - name: 1-3,terrafrom version Check
+        run: terraform --version
+#==========================================#
+
+#====2. Azure認証確立====#
+      # 関連ファイル：provider.tf
+      # 2-1：Azureログイン（GitHub上の鍵確認と使用）
+      - name: 2-1,Azure Login 
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Ensure Backend Infrastructure
+      
+      # 2-2：サブスクリプションの設定と作業員（Ubuntu）の各種権限確認
+      # 関連ファイル：provider.tf
+      - name: 2-2,Confirm Login Context & Authority
         run: |
-          az group create --name "rg-storage-state" --location "japanwest"
-          az storage account create --name "sttfstate20260506yuta" --resource-group "rg-storage-state" --location "japanwest" --sku Standard_LRS --allow-blob-public-access false
-          az storage container create --name "tfstate" --account-name "sttfstate20260506yuta" --auth-mode login
+          echo "--- Current Subscription Info ---"
+          az account show --query "{SubscriptionName:name, SubscriptionID:id, TenantID:tenantId}" --output table
+          echo "--- Login Identity ---"
+          az ad signed-in-user show --query "{DisplayName:displayName, Type:userType}" --output table
+#=======================#
+#====3. Backend 物理基盤作成（Ensure Backend Infrastructure）====#
+      # 関連ファイル：main.tf
+      # 3-1：リソースグループ作成
+      - name: 3-1,Create Resource Group for State
+        run: az group create --name "rg-storage-state" --location "japanwest"
 
-      - name: Setup Terraform
+      # 3-2：トレージアカウント作成
+      # 関連ファイル：main.tf
+      - name: 3-2,Create Storage Account
+        run: |
+          az storage account create --name "sttfstate20260506yuta" \
+            --resource-group "rg-storage-state" \
+            --location "japanwest" \
+            --sku Standard_LRS \
+            --allow-blob-public-access false
+
+      # 3-3：コンテナ作成（兼 権限確認）
+      # 関連ファイル：main.tf
+      - name: 3-3,Create Storage Container
+        run: az storage container create --name "tfstate" --account-name "sttfstate20260506yuta" --auth-mode login
+#================================================================#
+
+
+#=====4. Terraform初期化（Terraform Init）=====#
+      # 4-1：作業員(Ubuntu)がTerraformを準備
+      # 関連ファイル：none（GitHub Actions上でTerraformコマンドを有効化）
+      - name: 4-1,Setup Terraform
         uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
+      
+      #4-2：作業員(Ubuntu）にAzure操作知識（Provider）をダウンロード & Backend（Azure Strage）との接続確立
+      # 関連ファイル：main.tf (Provider/Backend定義), .terraform.lock.hcl (バージョン固定)
+      - name: 4-2,Azure Provider download & Backend Connect
+        id: init  # 4-3で参照するために必要
         working-directory: ./my-project/terraform
         run: terraform init -input=false
 
-      - name: Terraform Plan
+      # 4-2：初期化実行結果のステータス確認
+      # 関連ファイル：なし（直前のステップ「init」の終了ステータスを確認）
+      - name: 4-3,Check Init Status
+        if: steps.init.outcome == 'failure'
+        run: |
+          echo "Terraform 初期化に失敗しました。Backendの接続設定やネットワークを確認してください。"
+          exit 1
+
+#=============================================#
+
+#=====5. Terraform コードチェック（Terraform Code Check）=====#
+      # 5-1：構文（文法）の自動チェック実行
+      # 関連ファイル：./my-project/terraform/ 配下のすべての .tf ファイル
+      - name: 5-1,Terraform Syntax Check
+        id: validate
+        working-directory: ./my-project/terraform
+        run: terraform validate
+
+      # 5-2：コードの整形（見た目）の自動確認
+      # 関連ファイル：./my-project/terraform/ 配下のすべての .tf ファイル
+      - name: 5-2,Terraform Format Check
+        id: fmt
+        working-directory: ./my-project/terraform
+        run: terraform fmt -check
+
+      # 5-3：チェック結果のステータス確認
+      # 関連ファイル：なし
+      - name: 5-3,Check Code Quality Status
+        if: always() && (steps.validate.outcome == 'failure' || steps.fmt.outcome == 'failure')
+        run: |
+          echo "コードの構文エラー（5-1）、または整形不備（5-2）が検知されました。"
+          echo "ローカル環境で terraform validate および terraform fmt を実行して修正してください。"
+          exit 1
+
+#============================================================#
+
+#=====6. Terraform 実行計画（Terraform Plan）=====#
+      # 6-1：Azure現況と設計図の比較（ドライラン実行）
+      # 関連ファイル：
+      #   - 入力：./my-project/terraform/ 配下のすべての .tf ファイル
+      #   - 入力：env-prod.tfvars または env-test.tfvars（環境により自動選択）
+      #   - 出力：tfplan（バイナリ形式の実行計画ファイル）
+      - name: 6-1,Terraform Plan
+        id: plan
         working-directory: ./my-project/terraform
         env:
           TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
           TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
         run: |
+          # 環境に応じた変数の選択
           VAR_FILE=$([ "${{ github.ref }}" = "refs/heads/main" ] && echo "env-prod.tfvars" || echo "env-test.tfvars")
+          
+          # 1. バイナリ形式で計画を出力（Apply への受け渡し用）
           terraform plan -var-file="$VAR_FILE" -input=false -out=tfplan
+          
+          # 2. テキスト形式で詳細を出力（Artifact で人間が確認する用）
+          # -no-color を付与することで、ログファイルが制御文字で汚れるのを防ぎます
+          terraform show -no-color tfplan > plan_details.txt
+
+      # 6-2：変更差分（追加・修正・削除）の抽出
+      # 関連ファイル：
+      #   - 入力：tfplan（6-1で生成されたファイル）
+      #   - 出力：plan_details.txt（人間が読めるテキスト形式の差分ログ）
+      - name: 6-2,Extract Detailed Plan Changes
+        id: extract_details
+        working-directory: ./my-project/terraform
+        run: |
+          # 変更があるリソースの詳細（前後の値）を人間が読みやすい形式で出力
+          echo "### Terraform 変更詳細レポート" > plan_details.txt
+          terraform show -no-color tfplan >> plan_details.txt
+          
+          # GitHub Actionsのログ画面にも表示し、後続のステップで参照可能にする
+          cat plan_details.txt
+
+      # 6-3：実行計画の結果確認
+      # 関連ファイル：plan_details.txt（6-2で出力されたテキストファイル）
+      - name: 6-3,Check Plan Status
+        if: always()
+        run: |
+          # 6-1や6-2でエラーが出ていた場合は、ここで異常終了させる
+          if [ "${{ steps.extract_details.outcome }}" != "success" ]; then
+            echo "実行計画の作成、または詳細の抽出に失敗しました。"
+            exit 1
+          fi
+
+          # 変更があるかどうかを判定（plan_details.txt に変更内容が含まれているか）
+          if grep -q "No changes." ./my-project/terraform/plan_details.txt; then
+            echo "【確認結果】Azure環境への変更はありません。設計図は現況と一致しています。"
+          else
+            echo "【確認結果】Azure環境への変更が検知されました。上記ログの詳細を確認してください。"
+          fi
+#================================================#
+
+#====7. Ansible コード検証（Ansible Syntax Check）====#
+      # 7-1：Ansibleのインストール（Setup Ansible）
+      # 関連ファイル：なし
+      - name: 7-1,Install Ansible
+        run: |
+          sudo apt-get update && sudo apt-get install -y ansible
+
+      # 7-2：プレイブックの構文チェック（Syntax Check）
+      # 関連ファイル：./my-project/Ansible/site.yml, ./my-project/Ansible/inventory.ini
+      - name: 7-2,Ansible Syntax Check
+        id: ansible_syntax
+        working-directory: ./my-project/Ansible
+        run: |
+          ansible-playbook site.yml -i inventory.ini --syntax-check
+
+      # 7-3：検証結果の判定
+      # 関連ファイル：なし（7-2の実行ステータスを参照）
+      - name: 7-3,Check Ansible Status
+        if: always()
+        run: |
+          if [ "${{ steps.ansible_syntax.outcome }}" != "success" ]; then
+            echo "Ansibleの構文チェックに失敗しました。プレイブック（site.yml）の内容を確認してください。"
+            exit 1
+          fi
+
+#====================================================#
+
+#====8. 成果物のパッケージング（Artifact Packaging）====#
+       # 8-1：計画ファイルとレポートの保存（Upload Artifact）
+       # 関連ファイル：
+      #   - 入力：./my-project/terraform/tfplan（バイナリ計画ファイル）
+      #   - 入力：./my-project/terraform/plan_details.txt（テキスト差分レポート）
+      - name: 8-1,Upload Terraform Plan and Details
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-artifacts
+          path: |
+            ./my-project/terraform/tfplan
+            ./my-project/terraform/plan_details.txt
+          retention-days: 7
+
+#====================================================#
+# 
 
   terraform-apply:
     name: '2. Apply & Deploy'
@@ -105,3 +288,53 @@ jobs:
             -e "admin_username=$ADMIN_USER" \
             -e "mysql_root_password=$MYSQL_ROOT_PASSWORD" \
             -e "mysql_password=$MYSQL_PASSWORD"
+
+
+
+#################ここからmain.yml(Apply & Deploy）コード#################
+terraform-apply:
+    name: '2. Apply & Deploy'
+    needs: terraform-plan             # Planが成功するまで絶対に動かさない
+    environment: production-approval  # 人間の最終承認（ポチ押し）を強制する
+    runs-on: ubuntu-latest
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      
+    steps:
+#====1. 環境セットアップ（Runner Setup）====#
+      # 関連ファイル：なし
+      # 1-1：作業員（Ubuntu）の起動確認
+      - name: 1-1,Ubuntu up Check
+        run: echo "Runner is ready." 
+
+      # 1-2：「Terraform/Ansible」コードの取得
+      # 関連ファイル：なし
+      - name: 1-2,Checkout Code
+        uses: actions/checkout@v4
+
+      # 1-3：作業員（Ubuntu）のコード実行可否確認
+      # 関連ファイル：なし
+      - name: 1-3,terrafrom version Check
+        run: terraform --version
+#==========================================#
+
+#====2. Azure認証確立====#
+      # 関連ファイル：provider.tf
+      # 2-1：Azureログイン（GitHub上の鍵確認と使用）
+      - name: 2-1,Azure Login 
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      # 2-2：サブスクリプションの設定と作業員（Ubuntu）の各種権限確認
+      # 関連ファイル：provider.tf
+      - name: 2-2,Confirm Login Context & Authority
+        run: |
+          echo "--- Current Subscription Info ---"
+          az account show --query "{SubscriptionName:name, SubscriptionID:id, TenantID:tenantId}" --output table
+          echo "--- Login Identity ---"
+          az ad signed-in-user show --query "{DisplayName:displayName, Type:userType}" --output table
+#=======================#
+
