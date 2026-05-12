@@ -5,6 +5,12 @@ name: 'Azure Infrastructure Build'
 
 on:
   workflow_dispatch:
+    # 【安全策】手動実行時に「YES」と入力しない限り、Applyフェーズに進めないように引数を追加
+    inputs:
+      confirm_apply:
+        description: '本番環境へのApplyを実行しますか？ (実行する場合は YES と入力)'
+        required: true
+        default: 'NO'
 
 permissions:
   contents: read
@@ -36,7 +42,7 @@ jobs:
       - name: 1-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # 【改善点】存在確認を行い、不要な作成処理（数分の待機）をバイパスする
+      # 存在確認を行い、不要な作成処理をバイパス（高速化とTLS1.2固定）
       - name: 1-4, Ensure Backend Resources Exist
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
@@ -44,35 +50,22 @@ jobs:
           LOCATION="japanwest"
           CONTAINER_NAME="tfstate"
 
-          echo "Step 1: Checking Resource Group..."
           if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "$LOCATION"
           fi
 
-          echo "Step 2: Checking Storage Account..."
-          # showコマンドで存在確認。存在しない場合のみ作成に移行
           if ! az storage account show --name "$STORAGE_ACCOUNT" --resource-group "$RG_NAME" &>/dev/null; then
-            echo "Creating Storage Account (This may take a minute for the first time)..."
             az storage account create \
               --name "$STORAGE_ACCOUNT" \
               --resource-group "$RG_NAME" \
               --location "$LOCATION" \
               --sku Standard_LRS \
               --allow-blob-public-access false \
-              --min-tls-version TLS1_2 # 【修正】2026年廃止済みの古いTLSを回避し、接続遅延を防止
-          else
-            echo "Storage Account already exists. Skipping..."
+              --min-tls-version TLS1_2 
           fi
 
-          echo "Step 3: Checking Storage Container..."
-          # コンテナの存在確認
           if ! az storage container show --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
-            az storage container create \
-              --name "$CONTAINER_NAME" \
-              --account-name "$STORAGE_ACCOUNT" \
-              --auth-mode login
-          else
-            echo "Container already exists. Skipping..."
+            az storage container create --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT" --auth-mode login
           fi
 
       - name: 1-5, Terraform Init
@@ -102,6 +95,9 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
+    # 【最重要】実行時の入力が「YES」の場合のみジョブを開始する物理的な制限を追加
+    # これにより、Environmentの設定ミスに関わらず、意図しない自動デプロイを100%阻止します
+    if: github.event.inputs.confirm_apply == 'YES'
     environment: production-approval
     runs-on: ubuntu-latest
     env:
@@ -129,16 +125,13 @@ jobs:
       - name: 2-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # Apply側も、存在確認（show）により高速化。TLS指定も追加
       - name: 2-5, Ensure Backend Resources Exist
         run: |
           STORAGE_ACCOUNT="sttfstate20260506yuta"
           RG_NAME="rg-storage-state"
-          
           if ! az group show --name "$RG_NAME" &>/dev/null; then
             az group create --name "$RG_NAME" --location "japanwest"
           fi
-          
           if ! az storage container show --name "tfstate" --account-name "$STORAGE_ACCOUNT" --auth-mode login &>/dev/null; then
             az storage container create --name "tfstate" --account-name "$STORAGE_ACCOUNT" --auth-mode login
           fi
