@@ -1,14 +1,14 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow
+# 運用フロー: featureで検証完了後、mainにマージして本番反映
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  # 常に手動実行 (workflow_dispatch) で環境を選択
   workflow_dispatch:
     inputs:
       target_env:
-        description: 'デプロイ対象の環境を選択'
+        description: 'デプロイ対象の環境 (dev/prod)'
         required: true
         default: 'dev'
         type: choice
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Terraform Plan & Check (実行計画の作成と確認)
+  # 1. Plan & Check (検証・本番共通)
   # =============================================================
   terraform-plan:
     name: '1. Plan & Check (00_backend)'
@@ -49,33 +49,32 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: '1-4. Terraform Init'
-        working-directory: ./00_backend
+        working-directory: ./my-project/00_backend
         run: terraform init
 
       - name: '1-5. Terraform Plan'
         id: plan
-        working-directory: ./00_backend
+        working-directory: ./my-project/00_backend
         run: |
           terraform plan \
             -var-file="env-${{ github.event.inputs.target_env }}.tfvars" \
             -out=tfplan
         
-      # Plan結果（tfplanファイル）を後続のApplyジョブに引き継ぐため一時保存
       - name: '1-6. Upload Plan Artifact'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.event.inputs.target_env }}
-          path: 00_backend/tfplan
+          path: ./my-project/00_backend/tfplan
           retention-days: 1
 
   # =============================================================
-  # 2. Terraform Apply & Deploy (承認後の適用実行)
+  # 2. Apply & Deploy (手動承認ゲート)
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
-    needs: terraform-plan # Planジョブが成功していることが必須
+    needs: terraform-plan
     runs-on: ubuntu-latest
-    # 【重要：安全設計】GitHub上のEnvironment設定で承認者を指定可能
+    # 【安全設計】Environmentによる承認待ちを強制
     environment: ${{ github.event.inputs.target_env }}
     
     env:
@@ -100,18 +99,17 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: '2-4. Terraform Init'
-        working-directory: ./00_backend
+        working-directory: ./my-project/00_backend
         run: terraform init
 
-      # 保存していたPlan結果をダウンロード
       - name: '2-5. Download Plan Artifact'
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ github.event.inputs.target_env }}
-          path: 00_backend
+          path: ./my-project/00_backend
 
       - name: '2-6. Terraform Apply'
-        # mainブランチかつ手動実行時のみ実行
-        if: github.ref == 'refs/heads/main'
-        working-directory: ./00_backend
+        # どのブランチでも承認さえあれば実行を許可（検証用・本番用の区別をEnvironmentで行う）
+        if: success()
+        working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
