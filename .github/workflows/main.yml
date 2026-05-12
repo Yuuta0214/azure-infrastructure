@@ -88,13 +88,13 @@ jobs:
   terraform-apply:
     name: '2. Apply & Deploy'
     needs: terraform-plan
-    # 【最重要】GitHub Environmentsを利用し、ボタン押下（承認）を必須化
-    # GitHub上の「Settings > Environments」で "production-approval" を作成し
-    # 「Required reviewers」を有効にしていることを前提とします。
+    # 【最重要：修正】environment 定義をジョブの最上位（runs-onの前）に移動。
+    # これにより GitHub がジョブの開始自体を「承認待ち」としてロックします。
     environment: production-approval
-    # 【追加】Plan成功時、かつ手動実行時のみ動作するように厳密に制限
-    if: github.event_name == 'workflow_dispatch' && always() && needs.terraform-plan.result == 'success'
     runs-on: ubuntu-latest
+    # 【最重要：修正】always() を削除。
+    # 成功時のみ、かつワークフローの手動起動時のみ実行を許可する厳密な条件に変更。
+    if: github.event_name == 'workflow_dispatch' && needs.terraform-plan.result == 'success'
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
