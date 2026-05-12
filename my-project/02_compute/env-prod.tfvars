@@ -1,13 +1,8 @@
 # ==========================================
 # 1. 基盤・環境定義
 # ==========================================
-# リソースをデプロイするリージョンを指定
 location     = "japaneast"
-
-# 実行環境の識別子（prod/dev）。リソース名の命名やバリデーションに使用
 environment  = "prod"
-
-# システムの基本名称。リソース名の接頭辞（Prefix）として利用
 project_name = "web"
 
 # ==========================================
@@ -19,13 +14,23 @@ vm_size      = "Standard_D2s_v3"
 # 3. 認証・セキュリティ定義
 # ==========================================
 admin_username = "azureuser"
-# admin_password は GitHub Secrets (TF_VAR_admin_password) から注入するため記述不要
 ssh_public_key = ""
 
 # ==========================================
 # 4. メタデータ定義 (運用管理用)
 # ==========================================
 tags = {
-  BusinessUnit = "Production-Ops" # 事業部門やチーム名
-  CostCenter   = "WEB-101"        # コスト配分用の予算コード
+  BusinessUnit = "Production-Ops"
+  CostCenter   = "WEB-101"
 }
+
+# ==========================================
+# 5. ネットワーク参照定義 (追記箇所)
+# 01_network で作成されたリソースの ID を直接指定します。
+# これにより、別フォルダのファイルを読み込むことなく動作を完結させます。
+# ==========================================
+# 本番環境（prod）のサブネット ID を指定
+subnet_id          = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-prod/providers/Microsoft.Network/virtualNetworks/vnet-web-prod/subnets/snet-backend"
+
+# 本番環境（prod）の LB バックエンドプール ID を指定
+lb_backend_pool_id = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbe-web-prod/backendAddressPools/lbe-pool-web-prod"

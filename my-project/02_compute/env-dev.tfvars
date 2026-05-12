@@ -1,32 +1,35 @@
 # ==========================================
 # 1. 基盤・環境定義
 # ==========================================
-# リソースをデプロイするリージョンを指定
 location     = "japanwest"
-
-# 実行環境の識別子（prod/dev）。リソース名の命名やバリデーションに使用
 environment  = "dev"
-
-# システムの基本名称。リソース名の接頭辞（Prefix）として利用
 project_name = "web"
 
 # ==========================================
 # 2. コンピューティング定義 (VMスペック)
 # ==========================================
-# 修正ポイント: 409 Conflict (SkuNotAvailable) 回避のため B2ms から B2s へ変更
 vm_size      = "Standard_D2s_v3"
 
 # ==========================================
 # 3. 認証・セキュリティ定義
 # ==========================================
 admin_username = "azureuser"
-# admin_password は GitHub Secrets (TF_VAR_admin_password) から注入するため記述不要
 ssh_public_key = ""
 
 # ==========================================
 # 4. メタデータ定義 (運用管理用)
 # ==========================================
 tags = {
-  BusinessUnit = "Production-dev" # 事業部門やチーム名
-  CostCenter   = "WEB-201"        # コスト配分用の予算コード
+  BusinessUnit = "Production-dev"
+  CostCenter   = "WEB-201"
 }
+
+# ==========================================
+# 5. ネットワーク参照定義 (追記箇所)
+# 開発環境（dev）用のリソース ID を指定します。
+# ==========================================
+# 開発環境（dev）のサブネット ID を指定
+subnet_id          = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
+
+# 開発環境（dev）の LB バックエンドプール ID を指定
+lb_backend_pool_id = "/subscriptions/<サブスクリプションID>/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbe-web-dev/backendAddressPools/lbe-pool-web-dev"

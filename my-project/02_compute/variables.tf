@@ -82,3 +82,17 @@ variable "tags" {
   default     = {
   }
 }
+
+# ==========================================
+# 5. ネットワーク参照定義 (フォルダ間独立用)
+# 修正点: compute.tf で使用する外部リソースIDを変数として定義
+# ==========================================
+variable "subnet_id" {
+  description = "01_networkで作成済みのサブネットID"
+  type        = string
+}
+
+variable "lb_backend_pool_id" {
+  description = "01_networkで作成済みのLBバックエンドプールID"
+  type        = string
+}

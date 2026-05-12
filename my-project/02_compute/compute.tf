@@ -1,3 +1,9 @@
+# ==========================================================================
+# 0. ネットワーク情報の定義
+# 他フォルダとの通信を行わず、変数を介してIDを直接指定する形に修正します。
+# ※実際に使用するIDは variables.tf または tfvars で管理します。
+# ==========================================================================
+
 # ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
@@ -8,7 +14,8 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.backend.id
+    # 【修正】直接的なリソース参照を避け、変数（var.subnet_id）から取得するように変更
+    subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
 
@@ -29,7 +36,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  backend_address_pool_id = azurerm_lb_backend_address_pool.lb_pool.id
+  # 【修正】直接的なリソース参照を避け、変数（var.lb_backend_pool_id）から取得するように変更
+  backend_address_pool_id = var.lb_backend_pool_id
 }
 
 # ==========================================
@@ -78,7 +86,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   lifecycle {
     ignore_changes = [
-      admin_password,    # パスワード変更による意図しない再起動を防止
+      admin_password,      # パスワード変更による意図しない再起動を防止
       tags["CreatedDate"], # 翌日以降のデプロイで日付が更新されるのを防止
     ]
   }
