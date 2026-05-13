@@ -18,7 +18,7 @@ locals {
 # 2. 管理用リソースグループ (RG)
 # ==========================================
 resource "azurerm_resource_group" "mgmt_rg" {
-  name     = "rg-${local.mgmt_prefix}" # 変数 mgmt_prefix を使う
+  name     = "rg-${local.mgmt_prefix}"
   location = var.location
   tags     = local.common_tags
 }
@@ -27,11 +27,11 @@ resource "azurerm_resource_group" "mgmt_rg" {
 # リソースロック
 # ==========================================
 resource "azurerm_management_lock" "rg_lock" {
-   name       = "resourcelock-backend-rg"
-   scope      = azurerm_resource_group.mgmt_rg.id
-   lock_level = "CanNotDelete"
-   notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
- }
+  name       = "resourcelock-backend-rg"
+  scope      = azurerm_resource_group.mgmt_rg.id
+  lock_level = "CanNotDelete"
+  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
+}
 
 # ==========================================
 # 3. State保存用ストレージアカウント
@@ -42,7 +42,7 @@ resource "azurerm_storage_account" "tfstate_sa" {
   resource_group_name      = azurerm_resource_group.mgmt_rg.name
   location                 = azurerm_resource_group.mgmt_rg.location
   account_tier             = "Standard"
-  account_replication_type = "LRS" # コスト効率重視（必要に応じて ZRS 等を検討）
+  account_replication_type = "LRS" # コスト効率重視
 
   # セキュリティ・運用設定（v3.116.0 整合）
   min_tls_version                 = "TLS1_2"
@@ -63,13 +63,14 @@ resource "azurerm_storage_account" "tfstate_sa" {
 # ==========================================
 resource "azurerm_storage_container" "tfstate_container" {
   name                  = "tfstate"
-  # 「.name」ではなく「.id」を使い、引数名も「storage_account_id」に変更
-  storage_account_id    = azurerm_storage_account.tfstate_sa.id
+  # 【修正】GitHub Actions (azurerm v3.116.0) との整合性をとるため
+  # storage_account_id ではなく storage_account_name を使用し、.name で参照します。
+  storage_account_name  = azurerm_storage_account.tfstate_sa.name
   container_access_type = "private"
 }
 
 # ==========================================
-# 5. ストレージアカウント用リソースロック (追加)
+# 5. ストレージアカウント用リソースロック
 # ==========================================
 resource "azurerm_management_lock" "sa_lock" {
   name       = "resourcelock-tfstate-sa"
