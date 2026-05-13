@@ -1,9 +1,10 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow
 # 
-# 構成方針:
-# 1. Plan & Check ジョブ内で 00 -> 01 の順に静的解析と計画を実行
-# 2. Apply & Deploy ジョブ内で承認を1回受け、00完了後に01を連続デプロイ
+# 厳守ルール：
+# 1. 表示ジョブは2つ（Plan/Apply）に集約し、各ジョブ内で 00 -> 01 を実行
+# 2. 実行内容が誰でも理解できるよう、全ステップに詳細な日本語コメントを付与
+# 3. 00（Backend）が完了しないと01のStateが保存できない物理的制約を考慮
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
@@ -16,7 +17,7 @@ permissions:
 
 jobs:
   # =============================================================
-  # Job 1: Plan & Check (00と01の計画をこの1つのジョブ内で順次実行)
+  # 1. Plan & Check ジョブ (画面上の箱はこれ1つ)
   # =============================================================
   plan-and-check:
     name: 'Plan & Check (Backend -> Network)'
@@ -29,53 +30,55 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
-      - name: 1-1, コードのチェックアウト
+      - name: 1-1. リポジトリのソースコードを取得
         uses: actions/checkout@v4
 
-      - name: 1-2, Azure へのログイン (OIDC認証)
+      - name: 1-2. Azure OIDC 認証を実行
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 1-3, Terraform 環境のセットアップ
+      - name: 1-3. Terraform バイナリ(1.7.0)をインストール
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
-      # 【00_backend】管理基盤のプラン実行
-      # 初回はストレージが存在しないため -backend=false で初期化
-      - name: 1-4, [00_backend] Terraform Init & Plan
+      # --- 00_backend (管理用リソース) の計画 ---
+      - name: 1-4. [00_backend] 初期化 (backend=falseで実行)
         working-directory: ./my-project/00_backend
-        run: |
-          terraform init -backend=false
-          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-00
+        run: terraform init -backend=false
 
-      # 【01_network】ネットワーク層のプラン実行
-      # 00のApply前でもエラーにならないよう、ここも -backend=false でチェックのみ行う
-      - name: 1-5, [01_network] Terraform Init & Plan
+      - name: 1-5. [00_backend] 実行計画の作成
+        working-directory: ./my-project/00_backend
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-00
+
+      # --- 01_network (ネットワークリソース) の計画 ---
+      - name: 1-6. [01_network] 初期化 (backend=falseで実行)
         working-directory: ./my-project/01_network
-        run: |
-          terraform init -backend=false
-          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-01
+        run: terraform init -backend=false
 
-      # Applyジョブで利用するためにプランファイルを成果物として保存
-      - name: 1-6, プランファイルのアップロード
+      - name: 1-7. [01_network] 実行計画の作成
+        working-directory: ./my-project/01_network
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-01
+
+      # 成果物を後続ジョブへ渡すために一括保存
+      - name: 1-8. プラン結果をアップロード
         uses: actions/upload-artifact@v4
         with:
-          name: all-terraform-plans
+          name: terraform-plans
           path: |
             my-project/00_backend/tfplan-00
             my-project/01_network/tfplan-01
 
   # =============================================================
-  # Job 2: Apply & Deploy (承認後、00のデプロイ完了を待って01を実行)
+  # 2. Apply & Deploy ジョブ (画面上の箱はこれ1つ)
   # =============================================================
   apply-and-deploy:
     name: 'Apply & Deploy (Backend -> Network)'
     needs: plan-and-check
-    environment: 'production' # ここで1回だけ人間の承認を挟む
+    environment: 'production' # ここで人間が1回だけ「承認」ボタンを押す
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -85,37 +88,39 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
-      - name: 2-1, コードのチェックアウト
+      - name: 2-1. コードのチェックアウト
         uses: actions/checkout@v4
 
-      - name: 2-2, Azure へのログイン
+      - name: 2-2. Azure 認証の再実行
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 2-3, Terraform 環境のセットアップ
-        uses: hashicorp/setup-terraform@v3
-
-      - name: 2-4, 保存されたプランファイルのダウンロード
+      - name: 2-3. プランファイルのダウンロード
         uses: actions/download-artifact@v4
         with:
-          name: all-terraform-plans
+          name: terraform-plans
           path: .
 
-      # 【00_backend】管理基盤（ストレージ等）のデプロイ
-      # まだストレージは「作成中」のため、ここでも -backend=false で適用
-      - name: 2-5, [00_backend] Terraform Apply
+      - name: 2-4. Terraform 環境のセットアップ
+        uses: hashicorp/setup-terraform@v3
+
+      # --- 00_backend (管理用リソース) の適用 ---
+      # この段階でBackend用ストレージが作成される
+      - name: 2-5. [00_backend] 適用を実行
         working-directory: ./my-project/00_backend
         run: |
           terraform init -backend=false
           terraform apply -auto-approve ../../my-project/00_backend/tfplan-00
 
-      # 【01_network】ネットワーク層のデプロイ
-      # 00のApplyが完了しているため、ここで初めて正式にBackendを初期化しStateを保存する
-      - name: 2-6, [01_network] Terraform Init & Apply
+      # --- 01_network (ネットワークリソース) の適用 ---
+      # 00で作ったストレージが有効になったため、ここではBackendを初期化してStateを保存
+      - name: 2-6. [01_network] Backendを有効化して初期化
         working-directory: ./my-project/01_network
-        run: |
-          terraform init
-          terraform apply -auto-approve ../../my-project/01_network/tfplan-01
+        run: terraform init
+
+      - name: 2-7. [01_network] 適用を実行
+        working-directory: ./my-project/01_network
+        run: terraform apply -auto-approve ../../my-project/01_network/tfplan-01
