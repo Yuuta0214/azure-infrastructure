@@ -6,9 +6,7 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-
-  # main.tf の locals で定義した共通タグを適用
-  tags = local.common_tags
+  tags                = local.common_tags
 }
 
 # ==========================================
@@ -22,29 +20,19 @@ resource "azurerm_subnet" "frontend" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# バックエンド用（Webサーバ/VMを配置）
+# バックエンド用（Webサーバ/VMを配置するメイン区画）
 resource "azurerm_subnet" "backend" {
   name                 = "snet-backend-${local.resource_prefix}"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.2.0/24"]
-  
-  # 【重要】VNetの作成完了を明示的に待機させ、参照エラーを防止
-  depends_on = [azurerm_virtual_network.vnet]
-}
-
-# 【ベストプラクティス：追加】
-# Subnet作成完了後、Azure内部のAPIに情報が完全に伝搬されるまで30秒待機
-# これにより、compute.tf 側での NIC 作成時の参照エラー（400 Bad Request）を確実に防ぎます
-resource "time_sleep" "wait_for_subnet" {
-  depends_on      = [azurerm_subnet.backend]
-  create_duration = "30s"
 }
 
 # ==========================================
-# 7. パブリックIP（ロードバランサー用）
+# 7. ロードバランサー関連（外部受付口）
 # ==========================================
-resource "azurerm_public_ip" "lb_pip" {
+# パブリックIPの定義（outputs.tf の pip_lb と整合）
+resource "azurerm_public_ip" "pip_lb" {
   name                = "pip-lb-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -53,17 +41,31 @@ resource "azurerm_public_ip" "lb_pip" {
   tags                = local.common_tags
 }
 
+# ロードバランサー本体
+resource "azurerm_lb" "lb" {
+  name                = "lb-${local.resource_prefix}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "Standard"
+
+  frontend_ip_configuration {
+    name                 = "LoadBalancerFrontEnd"
+    public_ip_address_id = azurerm_public_ip.pip_lb.id
+  }
+  tags = local.common_tags
+}
+
 # ==========================================
-# 8. ネットワークセキュリティグループ（NSG）の定義
+# 8. ネットワークセキュリティグループ（NSG）
 # ==========================================
 resource "azurerm_network_security_group" "nsg" {
   name                = "nsg-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
-  # HTTP (8080) 接続を許可（Web アプリ用）
+  # アプリケーション通信許可（8080ポート）
   security_rule {
-    name                       = "AllowHTTP8080"
+    name                       = "Allow8080Inbound"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
@@ -74,10 +76,10 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 
-  # ロードバランサーからのヘルスチェックを許可
+  # ロードバランサーからのヘルスチェック（80ポート）を許可
   security_rule {
-    name                       = "AllowLBAccess"
-    priority                   = 101
+    name                       = "AllowLBHealthCheck"
+    priority                   = 110
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -87,11 +89,10 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 
-  # 【必須】Ansible デプロイ用：GitHub Actions Runner 等からの SSH 接続を許可
-  # 運用に合わせて接続元 IP を制限することを推奨しますが、一旦 Internet を許可
+  # 管理用 SSH（22ポート）: 運用時は接続元を限定することを強く推奨
   security_rule {
-    name                       = "AllowSSHFromInternet"
-    priority                   = 105
+    name                       = "AllowSSHInbound"
+    priority                   = 120
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -101,26 +102,14 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 
-  # Azure Bastion サブネットからの管理用 SSH 接続を許可
-  security_rule {
-    name                       = "AllowSSHFromBastion"
-    priority                   = 110
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "10.0.10.0/26" # BastionSubnet の範囲
-    destination_address_prefix = "*"
-  }
-
   tags = local.common_tags
 }
 
 # ==========================================
 # 9. NSGとサブネットの関連付け
 # ==========================================
-resource "azurerm_subnet_network_security_group_association" "backend_assoc" {
+# NSGをバックエンドサブネットに適用し、配置されるVMを保護します
+resource "azurerm_subnet_network_security_group_association" "backend_nsg_assoc" {
   subnet_id                 = azurerm_subnet.backend.id
   network_security_group_id = azurerm_network_security_group.nsg.id
 }

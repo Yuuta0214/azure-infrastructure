@@ -1,62 +1,70 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
 ##########################################################################
+# 目的: 00_backend (管理基盤) のデプロイおよびステート管理
+# 特徴: OIDC認証、Artifactによるプラン確認、冪等性の確保
+##########################################################################
 name: 'Azure Infrastructure Build'
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手動実行のみ（意図しない実行を防止）
 
+# OIDC認証のために必要な権限設定
 permissions:
   contents: read
   id-token: write
 
 jobs:
   # =============================================================
-  # 1. Plan & Check (00_backend)
+  # 1. Plan & Check (00_backend 層の変更検知と検証)
   # =============================================================
   terraform-plan:
     name: '1. Plan & Check (00_backend)'
     runs-on: ubuntu-latest
+    
     env:
+      # Azure 認証情報 (GitHub Secrets に設定済みのものを使用)
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # ブランチに応じて環境(prod/dev)を自動判定
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+      # OIDC認証を有効化
+      ARM_USE_OIDC: true
 
     steps:
       - name: 1-1, Checkout Code
         uses: actions/checkout@v4
 
-      - name: 1-2, Azure Login
+      - name: 1-2, Azure Login (OIDC)
+        # セキュリティのベストプラクティス：シークレット管理が不要な OIDC 方式を採用
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: 1-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
-      # お手本 に倣い、Terraform実行前にCLIでリソースグループの存在を確認
-      - name: 1-4, Pre-Check Resource Group
-        run: |
-          RG_NAME="rg-web-${{ env.TARGET_ENV }}-mgmt"
-          if ! az group show --name "$RG_NAME" &>/dev/null; then
-            echo "Resource Group $RG_NAME not found. Terraform will attempt to create it."
-          fi
-
-      - name: 1-5, Terraform Init
+      # お手本 に倣い、Terraform実行時の引数は最小限に留める
+      - name: 1-4, Terraform Init
+        # providers.tf の backend 設定をそのまま使用（動的な上書きは行わない）
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      - name: 1-6, Terraform Plan
+      - name: 1-5, Terraform Plan
+        # ブランチ名によって決定した tfvars のみを指定
         working-directory: ./my-project/00_backend
         run: |
           terraform plan \
-            -var-file="./env-${{ env.TARGET_ENV }}.tfvars" \
+            -var-file="../env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan
 
-      - name: 1-7, Upload Plan Artifact
+      - name: 1-6, Upload Plan Artifact
+        # 運用保守：Plan結果を保存することで、Apply時に内容が変わるリスクを排除
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-artifacts
@@ -64,7 +72,7 @@ jobs:
           retention-days: 1
 
   # =============================================================
-  # 2. Apply & Deploy (00_backend)
+  # 2. Apply & Deploy (承認後の反映処理)
   # =============================================================
   terraform-apply:
     name: '2. Apply & Deploy (00_backend)'
@@ -78,15 +86,18 @@ jobs:
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+      ARM_USE_OIDC: true
 
     steps:
       - name: 2-1, Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2-2, Azure Login
+      - name: 2-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: 2-3, Download Plan Artifact
         uses: actions/download-artifact@v4
@@ -100,17 +111,11 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 2-5, Terraform Init
+        # 初期化は providers.tf の設定を維持
         working-directory: ./my-project/00_backend
         run: terraform init
 
-      # お手本 にあった、デプロイ前の最終チェックロジック
-      - name: 2-6, Pre-Deploy Safety Check
-        run: |
-          if [ ! -f "./my-project/00_backend/tfplan" ]; then
-            echo "Error: tfplan not found."
-            exit 1
-          fi
-
-      - name: 2-7, Terraform Apply
+      - name: 2-6, Terraform Apply
+        # 保存した Plan 結果を適用
         working-directory: ./my-project/00_backend
         run: terraform apply -auto-approve tfplan
