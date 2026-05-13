@@ -1,5 +1,5 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (層別順次実行版)
+# Azure Infrastructure Build Workflow (一括Apply・承認1回版)
 ##########################################################################
 name: 'Azure Infrastructure Build'
 
@@ -12,10 +12,10 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Plan & Check (00_backend 層)
+  # 1. Plan (00と01の両方を一度に計画)
   # =============================================================
-  terraform-plan-backend:
-    name: '1. Plan & Check (00_backend)'
+  terraform-plan:
+    name: '1. Plan (All Layers)'
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -40,31 +40,35 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
-      # 【重要】00層は管理基盤自体を作るため、初回構築時はbackendを無視してinitする
-      - name: 1-4, Terraform Init
-        working-directory: ./my-project/00_backend
-        run: terraform init -backend=false
-
-      - name: 1-5, Terraform Plan
+      # 00_backendのPlan
+      - name: 1-4, Plan Backend
         working-directory: ./my-project/00_backend
         run: |
-          terraform plan \
-            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-backend
+          terraform init -backend=false
+          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-backend
 
-      - name: 1-6, Upload Plan Artifact
+      # 01_networkのPlan (00がある前提でinit)
+      - name: 1-5, Plan Network
+        working-directory: ./my-project/01_network
+        run: |
+          terraform init
+          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-network
+
+      - name: 1-6, Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-backend-artifacts
-          path: ./my-project/00_backend/tfplan-backend
+          name: tfplans
+          path: |
+            ./my-project/00_backend/tfplan-backend
+            ./my-project/01_network/tfplan-network
 
   # =============================================================
-  # 2. Apply & Deploy (00_backend 層)
+  # 2. Apply (ここで1回だけ production 承認が入る)
   # =============================================================
-  terraform-apply-backend:
-    name: '2. Apply & Deploy (00_backend)'
-    needs: terraform-plan-backend
-    environment: 'production'
+  terraform-apply:
+    name: '2. Apply (All Layers)'
+    needs: terraform-plan
+    environment: 'production' # 承認ゲートはここ1箇所だけ
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -84,114 +88,27 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 2-3, Download Plan Artifact
+      - name: 2-3, Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-backend-artifacts
-          path: ./my-project/00_backend
+          name: tfplans
+          path: ./my-project
 
       - name: 2-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
-      - name: 2-5, Terraform Init
+      # --- 00_backend を先に実行 ---
+      - name: 2-5, Apply Backend
         working-directory: ./my-project/00_backend
-        run: terraform init -backend=false
+        run: |
+          terraform init -backend=false
+          terraform apply -auto-approve ../tfplan-backend
 
-      - name: 2-6, Terraform Apply
-        working-directory: ./my-project/00_backend
-        run: terraform apply -auto-approve tfplan-backend
-
-  # =============================================================
-  # 3. Plan & Check (01_network 層)
-  # =============================================================
-  terraform-plan-network:
-    name: '3. Plan & Check (01_network)'
-    needs: terraform-apply-backend
-    runs-on: ubuntu-latest
-    env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      ARM_USE_OIDC: true
-
-    steps:
-      - name: 3-1, Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 3-2, Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: 3-3, Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.0"
-
-      # 01層の時点では既に00層でストレージができているため、通常のinitが可能
-      - name: 3-4, Terraform Init
-        working-directory: ./my-project/01_network
-        run: terraform init
-
-      - name: 3-5, Terraform Plan
+      # --- 続けて 01_network を実行 ---
+      - name: 2-6, Apply Network
         working-directory: ./my-project/01_network
         run: |
-          terraform plan \
-            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-network
-
-      - name: 3-6, Upload Plan Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-network-artifacts
-          path: ./my-project/01_network/tfplan-network
-
-  # =============================================================
-  # 4. Apply & Deploy (01_network 層)
-  # =============================================================
-  terraform-apply-network:
-    name: '4. Apply & Deploy (01_network)'
-    needs: terraform-plan-network
-    environment: 'production'
-    runs-on: ubuntu-latest
-    env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      ARM_USE_OIDC: true
-
-    steps:
-      - name: 4-1, Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 4-2, Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: 4-3, Download Plan Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-network-artifacts
-          path: ./my-project/01_network
-
-      - name: 4-4, Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.0"
-
-      - name: 4-5, Terraform Init
-        working-directory: ./my-project/01_network
-        run: terraform init
-
-      - name: 4-6, Terraform Apply
-        working-directory: ./my-project/01_network
-        run: terraform apply -auto-approve tfplan-network
+          terraform init
+          terraform apply -auto-approve ../tfplan-network
