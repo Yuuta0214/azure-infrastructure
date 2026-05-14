@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Plan & Check ジョブ (画面上の箱はこれ1つ)
+  # 1. Plan & Check ジョブ
   # =============================================================
   plan-and-check:
     name: 'Plan & Check (Backend -> Network)'
@@ -45,20 +45,20 @@ jobs:
         with:
           terraform_version: 1.7.0
 
-      # --- 00_backend (管理用リソース) の計画 ---
-      - name: 1-4. [00_backend] 初期化 (backend=falseで実行)
+      # --- 00_backend ---
+      - name: 1-4. [00_backend] 初期化
         working-directory: ./my-project/00_backend
-        run: terraform init -backend=false
+        run: terraform init -backend=false -input=false
 
       - name: 1-5. [00_backend] 実行計画の作成
         working-directory: ./my-project/00_backend
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-00
 
-      # --- 01_network (ネットワークリソース) の計画 ---
-      # 00が未作成でも、backend=falseにより構成チェックのみ実行可能
-      - name: 1-6. [01_network] 初期化 (backend=falseで実行)
+      # --- 01_network ---
+      - name: 1-6. [01_network] 初期化
+        # バックエンドブロックが存在する場合でも強制的に無視して構成チェックのみ行う
         working-directory: ./my-project/01_network
-        run: terraform init -backend=false
+        run: terraform init -backend=false -input=false
 
       - name: 1-7. [01_network] 実行計画の作成
         working-directory: ./my-project/01_network
@@ -73,7 +73,7 @@ jobs:
             my-project/01_network/tfplan-01
 
   # =============================================================
-  # 2. Apply & Deploy ジョブ (承認後に実行される箱)
+  # 2. Apply & Deploy ジョブ
   # =============================================================
   apply-and-deploy:
     name: 'Apply & Deploy (Backend -> Network)'
@@ -109,25 +109,22 @@ jobs:
         with:
           terraform_version: 1.7.0
 
-      # --- 00_backend (管理用リソース) の適用 ---
-      # この段階でBackend用ストレージが作成される
+      # --- 00_backend ---
       - name: 2-5. [00_backend] 適用を実行
         working-directory: ./my-project/00_backend
         run: |
-          terraform init -backend=false
+          terraform init -backend=false -input=false
           terraform apply -auto-approve ../../plan-results/my-project/00_backend/tfplan-00
 
-      # --- 01_network (ネットワークリソース) の適用 ---
-      # 00で作成されたばかりのストレージをBackendとして動的に指定
-      - name: 2-6. [01_network] ストレージ完成後の本初期化
+      # --- 01_network ---
+      - name: 2-6. [01_network] 適用を実行
+        # 00で作成されたストレージをここで初めてBackendとして接続
         working-directory: ./my-project/01_network
         run: |
           terraform init \
             -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}-mgmt" \
             -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=network.tfstate"
-
-      - name: 2-7. [01_network] 適用を実行
-        working-directory: ./my-project/01_network
-        run: terraform apply -auto-approve ../../plan-results/my-project/01_network/tfplan-01
+            -backend-config="key=network.tfstate" \
+            -input=false
+          terraform apply -auto-approve ../../plan-results/my-project/01_network/tfplan-01
