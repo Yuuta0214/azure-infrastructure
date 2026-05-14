@@ -4,7 +4,7 @@
 # 目的: Terraform State保存用のストレージ基盤のみをデプロイする
 # 特徴: 00_backendディレクトリ専用、OIDC認証、本番環境への手動承認
 ##########################################################################
-name: '00_Backend_Deploy'
+name: 00-Backend-Deployname: 00-Backend-Deploy  # クォーテーションを外し、アンダースコア(_)をハイフン(-)に変える
 
 on:
   workflow_dispatch: # GitHub UIからの手動実行をトリガーにする
