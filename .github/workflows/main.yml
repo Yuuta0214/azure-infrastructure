@@ -55,6 +55,7 @@ jobs:
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-00
 
       # --- 01_network (ネットワークリソース) の計画 ---
+      # 00が未作成でも、backend=falseにより構成チェックのみ実行可能
       - name: 1-6. [01_network] 初期化 (backend=falseで実行)
         working-directory: ./my-project/01_network
         run: terraform init -backend=false
@@ -101,7 +102,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: terraform-plans
-          path: .
+          path: ./plan-results
 
       - name: 2-4. Terraform 環境のセットアップ
         uses: hashicorp/setup-terraform@v3
@@ -109,13 +110,15 @@ jobs:
           terraform_version: 1.7.0
 
       # --- 00_backend (管理用リソース) の適用 ---
+      # この段階でBackend用ストレージが作成される
       - name: 2-5. [00_backend] 適用を実行
         working-directory: ./my-project/00_backend
         run: |
           terraform init -backend=false
-          terraform apply -auto-approve ../../tfplan-00
+          terraform apply -auto-approve ../../plan-results/my-project/00_backend/tfplan-00
 
       # --- 01_network (ネットワークリソース) の適用 ---
+      # 00で作成されたばかりのストレージをBackendとして動的に指定
       - name: 2-6. [01_network] ストレージ完成後の本初期化
         working-directory: ./my-project/01_network
         run: |
@@ -127,4 +130,4 @@ jobs:
 
       - name: 2-7. [01_network] 適用を実行
         working-directory: ./my-project/01_network
-        run: terraform apply -auto-approve ../../tfplan-01
+        run: terraform apply -auto-approve ../../plan-results/my-project/01_network/tfplan-01
