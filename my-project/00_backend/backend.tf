@@ -24,35 +24,29 @@ resource "azurerm_resource_group" "mgmt_rg" {
 }
 
 # ==========================================
-# リソースロック
-# ==========================================
-resource "azurerm_management_lock" "rg_lock" {
-  name       = "resourcelock-backend-rg"
-  scope      = azurerm_resource_group.mgmt_rg.id
-  lock_level = "CanNotDelete"
-  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
-}
-
-# ==========================================
 # 3. State保存用ストレージアカウント
 # ==========================================
 resource "azurerm_storage_account" "tfstate_sa" {
-  # 名前制約: 英小文字と数字のみ（ハイフン不可）
+  # 名称ルール: 英小文字と数字のみ（ハイフン不可）
   name                     = "st${var.project_name}${var.environment}backend"
   resource_group_name      = azurerm_resource_group.mgmt_rg.name
   location                 = azurerm_resource_group.mgmt_rg.location
   account_tier             = "Standard"
   account_replication_type = "LRS" # コスト効率重視
 
-  # セキュリティ・運用設定（v3.116.0 整合）
+  # セキュリティ・運用設定
   min_tls_version                 = "TLS1_2"
   https_traffic_only_enabled      = true
-  allow_nested_items_to_be_public = false # コンテナ内の公開アクセスを物理的に禁止
+  allow_nested_items_to_be_public = false # 公開アクセスを物理的に禁止
   
-  # 【保守のベストプラクティス：バージョニング】
-  # 万が一 State ファイルが破損・誤削除された場合でも、過去のバージョンから復旧可能にします。
+  # 【保守のベストプラクティス：データ保護】
+  # バージョニングを有効にし、Stateファイルの破損・誤削除からの復旧を可能にします
   blob_properties {
     versioning_enabled = true
+    # 削除されたStateを一定期間保持する設定（追加推奨）
+    delete_retention_policy {
+      days = 7
+    }
   }
 
   tags = local.common_tags
@@ -63,18 +57,16 @@ resource "azurerm_storage_account" "tfstate_sa" {
 # ==========================================
 resource "azurerm_storage_container" "tfstate_container" {
   name                  = "tfstate"
-  # 【修正】GitHub Actions (azurerm v3.116.0) との整合性をとるため
-  # storage_account_id ではなく storage_account_name を使用し、.name で参照します。
   storage_account_name  = azurerm_storage_account.tfstate_sa.name
   container_access_type = "private"
 }
 
 # ==========================================
-# 5. ストレージアカウント用リソースロック
+# 5. リソースロック (冪等性と安全性の両立)
 # ==========================================
-resource "azurerm_management_lock" "sa_lock" {
-  name       = "resourcelock-tfstate-sa"
-  scope      = azurerm_storage_account.tfstate_sa.id
+resource "azurerm_management_lock" "rg_lock" {
+  name       = "resourcelock-backend-rg"
+  scope      = azurerm_resource_group.mgmt_rg.id
   lock_level = "CanNotDelete"
-  notes      = "このストレージアカウントにはTerraformのStateファイルが保存されているため、削除を禁止しています。"
+  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
 }
