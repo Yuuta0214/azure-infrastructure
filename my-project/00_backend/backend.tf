@@ -27,7 +27,8 @@ resource "azurerm_resource_group" "mgmt_rg" {
 # 3. State保存用ストレージアカウント
 # ==========================================
 resource "azurerm_storage_account" "tfstate_sa" {
-  # 名称ルール: 英小文字と数字のみ（ハイフン不可）
+  # 名称ルール: 
+  # 英小文字と数字のみ（ハイフン不可）
   name                     = "st${var.project_name}${var.environment}backend"
   resource_group_name      = azurerm_resource_group.mgmt_rg.name
   location                 = azurerm_resource_group.mgmt_rg.location
@@ -36,6 +37,7 @@ resource "azurerm_storage_account" "tfstate_sa" {
 
   # セキュリティ・運用設定
   min_tls_version                 = "TLS1_2"
+  
   https_traffic_only_enabled      = true
   allow_nested_items_to_be_public = false # 公開アクセスを物理的に禁止
   
@@ -50,6 +52,12 @@ resource "azurerm_storage_account" "tfstate_sa" {
   }
 
   tags = local.common_tags
+
+  # 【重複実行・上書き防止設定】
+  # 同名のリソースが既に存在する場合、既存の設定を上書きせずにエラーを出して停止させます。
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ==========================================
@@ -62,11 +70,22 @@ resource "azurerm_storage_container" "tfstate_container" {
 }
 
 # ==========================================
-# 5. リソースロック (冪等性と安全性の両立)
+# 5. 【追加】運用・保守のベストプラクティス：削除ロック
 # ==========================================
+# terraform destroy 等の操作ミスによる、State基盤自体の物理削除を防止します。
+
+# リソースグループ（RG）単位でのロック
 resource "azurerm_management_lock" "rg_lock" {
   name       = "resourcelock-backend-rg"
   scope      = azurerm_resource_group.mgmt_rg.id
   lock_level = "CanNotDelete"
-  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
+  notes      = "基盤リソースグループ全体の削除を防止します。"
+}
+
+# ストレージアカウント（SA）単位でのロック
+resource "azurerm_management_lock" "sa_lock" {
+  name       = "resourcelock-tfstate-sa"
+  scope      = azurerm_storage_account.tfstate_sa.id
+  lock_level = "CanNotDelete"
+  notes      = "Stateファイルを保持する重要なストレージのため、手動解除なしの削除を禁止します。"
 }
