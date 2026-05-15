@@ -148,7 +148,6 @@ resource "azurerm_subnet_network_security_group_association" "backend_nsg_assoc"
 }
 
 # network.tf の末尾などに追加
-
 resource "azurerm_network_security_rule" "allow_https" {
   name                        = "AllowHTTPSInbound"
   priority                    = 130
