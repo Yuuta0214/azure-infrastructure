@@ -1,20 +1,20 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
 ##########################################################################
-# 目的: 00_backend および 01_network の一括デプロイ
-# 特徴: OIDC認証、Artifactによるプラン確認、層別の順次実行
+# 目的: 01_network のデプロイ
+# 特徴: OIDC認証、Artifactによるプラン確認
 ##########################################################################
 name: '01-network-Deploy'
 
 on:
-  workflow_dispatch: # 手動実行のみ（ご指摘の通り、push設定は含めません）
+  workflow_dispatch: # 手動実行のみ
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  # ※terraform-plan-backend および terraform-apply-backend は
+  # ※ ユーザー様の意図に基づき、terraform-plan-backend および terraform-apply-backend は
   # 01_network.yml からは除外し、networkのJobのみを維持します。
 
   # =============================================================
@@ -22,7 +22,7 @@ jobs:
   # =============================================================
   terraform-plan-network:
     name: '3. Plan & Check (01_network)'
-    needs: terraform-apply-backend
+    # backendジョブを分離したため、needs（依存関係）を削除済み
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -58,6 +58,9 @@ jobs:
         working-directory: ./my-project/01_network
 
       - name: 3-5, Terraform Plan
+        id: plan
+        # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
+        run: terraform plan -var-file="../00_backend/env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan
         working-directory: ./my-project/01_network
 
       - name: 3-6, Upload Plan Artifact
