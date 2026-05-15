@@ -7,11 +7,7 @@
 name: 00-Backend-Deploy
 
 on:
-  workflow_dispatch: # GitHub UIからの手動実行をトリガーにする
-  push:
-    branches:
-      - main
-      - feature/azure-setup
+  workflow_dispatch: # 手動実行のみ（main_20260513.ymlの仕様に準拠）
 
 permissions:
   contents: read
