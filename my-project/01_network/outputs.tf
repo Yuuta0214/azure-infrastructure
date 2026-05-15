@@ -27,21 +27,28 @@ output "resource_group_name" {
   value       = azurerm_resource_group.rg.name
 }
 
+output "virtual_network_name" {
+  description = "作成された仮想ネットワーク（VNet）の名称"
+  value       = azurerm_virtual_network.vnet.name
+}
+
 output "backend_subnet_id" {
   description = "VMを配置するために用意されたバックエンドサブネットのID"
   # 02_compute で NIC を作成する際にこの ID が必要になります
   value       = azurerm_subnet.backend.id
 }
 
+output "network_security_group_id" {
+  description = "適用されているネットワークセキュリティグループ（NSG）のID"
+  # セキュリティ監査や後続のサブネット追加時に参照します
+  value       = azurerm_network_security_group.nsg.id
+}
+
 # ------------------------------------------
-# 3. 環境識別情報
+# 3. 運用・保守用メタデータ
 # ------------------------------------------
 
-output "environment_summary" {
-  description = "デプロイされた環境の基本情報サマリー"
-  value = {
-    env      = var.environment
-    project  = var.project_name
-    location = var.location
-  }
+output "location" {
+  description = "リソースがデプロイされているリージョン"
+  value       = azurerm_resource_group.rg.location
 }
