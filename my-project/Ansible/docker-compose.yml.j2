@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # ------------------------------------------
+  # 1. DB層: MySQL (データの永続化と隔離)
+  # ------------------------------------------
+  db:
+    image: mysql:8.0
+    container_name: mysql-db
+    restart: unless-stopped
+    environment:
+      # Ansible の変数({{ ... }})を使用して、デプロイ時にセキュアに値を注入
+      MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+      MYSQL_DATABASE: "{{ mysql_db_name }}"
+      MYSQL_USER: "{{ mysql_user }}"
+      MYSQL_PASSWORD: "{{ mysql_password }}"
+    volumes:
+      # ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント
+      - db_data:/var/lib/mysql
+    networks:
+      - backend-nw
+    # DB起動完了を正確に判定するためのヘルスチェック
+    healthcheck:
+      # 【修正】引数をリストで明示的に分割し、Jinja2変数の展開ミスを防止
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "{{ mysql_user }}", "-p{{ mysql_password }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------------------------
+  # 2. App層: Backend Application (ビジネスロジック)
+  # ------------------------------------------
+  app:
+    image: python:3.11-slim
+    container_name: python-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        # DB層の healthcheck が「healthy」になるまで、このコンテナの起動を待機
+        condition: service_healthy
+    environment:
+      # アプリケーションコードが参照する接続先情報
+      DB_HOST: db
+      DB_NAME: "{{ mysql_db_name }}"
+      DB_USER: "{{ mysql_user }}"
+      DB_PASS: "{{ mysql_password }}"
+    volumes:
+      # カレントディレクトリの app フォルダをコンテナ内にマウント
+      - ./app:/app
+    working_dir: /app
+    # デモ用: Python標準ライブラリで 8000ポートにてWEBサーバーを起動
+    command: python3 -m http.server 8000
+    networks:
+      - backend-nw
+
+  # ------------------------------------------
+  # 3. Web層: Nginx (リバースプロキシ)
+  # ------------------------------------------
+  web:
+    image: nginx:stable-alpine
+    container_name: nginx-web
+    restart: unless-stopped
+    # ホスト(VM)の 80 ポートへのアクセスを、コンテナの 80 ポートへ転送
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - frontend-nw
+      - backend-nw
+    volumes:
+      # 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります
+      # :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html:/usr/share/nginx/html:ro
+
+# ==========================================
+# ネットワーク定義
+# ==========================================
+networks:
+  # 外部（ALB）からのトラフィックを受けるためのブリッジネットワーク
+  frontend-nw:
+    driver: bridge
+
+  # DB/App層をインターネットから隔離するための内部ネットワーク
+  # internal: true により、このネットワーク上のコンテナは外部と直接通信できません
+  backend-nw:
+    driver: bridge
+    internal: true
+
+# ==========================================
+# ボリューム定義 (データの永続化)
+# ==========================================
+volumes:
+  # MySQL のデータを VM が再起動・コンテナ破棄されても保持するための領域
+  db_data:
+    driver: local

@@ -1,0 +1,108 @@
+- name: "Deployment of Web Service (Nginx/App/DB)"
+  hosts: all
+  gather_facts: no # 接続確認前にファクト収集を無効化
+
+  vars:
+    # Terraformから渡される admin_username を使用
+    admin_user: "{{ admin_username }}"
+    project_root: "/home/{{ admin_username }}/app"
+    # Docker公式リポジトリ設定用
+    docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
+    docker_repo_url: "https://download.docker.com/linux/debian"
+
+  tasks:
+    # ------------------------------------------
+    # 1. 同期・準備フェーズ
+    # ------------------------------------------
+    - name: "Wait for infrastructure bootstrap to complete"
+      ansible.builtin.wait_for:
+        path: /var/tmp/bootstrap_complete
+        state: present
+        timeout: 600
+      become: no # bootstrap.shの完了を待つだけなのでsudo不要
+
+    - name: "Gather facts after bootstrap confirmation"
+      ansible.builtin.setup:
+      become: yes
+
+    # ------------------------------------------
+    # 2. Docker インストールフェーズ
+    # ------------------------------------------
+    - name: "Create directory for Docker GPG key"
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: "Add Docker's official GPG key"
+      ansible.builtin.get_url:
+        url: "{{ docker_repo_url }}/gpg"
+        dest: "{{ docker_gpg_path }}"
+        mode: '0644'
+      become: yes
+
+    - name: "Add Docker repository to Apt sources"
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by={{ docker_gpg_path }}] {{ docker_repo_url }} {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+      become: yes
+
+    - name: "Install Docker Engine and Compose plugin"
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: "Ensure Docker service is started and enabled"
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+      become: yes
+
+    # ------------------------------------------
+    # 3. アプリケーションデプロイフェーズ
+    # ------------------------------------------
+    - name: "Create project root directory"
+      ansible.builtin.file:
+        path: "{{ project_root }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      become: yes
+
+    - name: "Deploy docker-compose.yml from template"
+      ansible.builtin.template:
+        src: "./docker-compose.yml.j2"
+        dest: "{{ project_root }}/docker-compose.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    # ------------------------------------------
+    # 4. コンテナ起動フェーズ
+    # ------------------------------------------
+    - name: "Run docker-compose up"
+      ansible.builtin.command:
+        cmd: "docker compose up -d"
+        chdir: "{{ project_root }}"
+      become: yes
+      register: docker_output
+      changed_when: "'Started' in docker_output.stdout or 'Created' in docker_output.stdout"
+
+    - name: "Verify running containers"
+      ansible.builtin.command:
+        cmd: "docker compose ps"
+        chdir: "{{ project_root }}"
+      become: yes
+      changed_when: false
