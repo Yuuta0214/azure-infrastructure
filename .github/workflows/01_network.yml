@@ -55,7 +55,7 @@ jobs:
         working-directory: ./00_backend
         run: |
           terraform plan \
-            -var-file="../00_backend/env-${{ env.TARGET_ENV }}.tfvars" \
+            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan-backend
 
   # =============================================================
@@ -99,7 +99,7 @@ jobs:
         working-directory: ./01_network
         run: |
           terraform plan \
-            -var-file="../01_network/env-${{ env.TARGET_ENV }}.tfvars" \
+            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan-network
 
       - name: 2-6, Upload Plan Artifact
