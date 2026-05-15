@@ -4,10 +4,14 @@
 # 目的: Terraform State保存用のストレージ基盤のみをデプロイする
 # 特徴: 00_backendディレクトリ専用、OIDC認証、本番環境への手動承認
 ##########################################################################
-name: 00-Backend-Deployname: 00-Backend-Deploy  # クォーテーションを外し、アンダースコア(_)をハイフン(-)に変える
+name: 00-Backend-Deploy
 
 on:
   workflow_dispatch: # GitHub UIからの手動実行をトリガーにする
+  push:
+    branches:
+      - main
+      - feature/azure-setup
 
 permissions:
   contents: read
@@ -51,7 +55,7 @@ jobs:
       - name: 1-5, Terraform Plan
         working-directory: ./my-project/00_backend
         run: |
-          terraform plan -var-file="../env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-backend
+          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-backend
 
       # 2回目以降の冪等性を守るため、プラン結果を一時保存
       - name: 1-6, Upload Plan Artifact
