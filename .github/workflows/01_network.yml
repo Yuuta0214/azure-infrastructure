@@ -22,7 +22,7 @@ jobs:
   # =============================================================
   terraform-plan-network:
     name: '3. Plan & Check (01_network)'
-    # 【最小限の修正】backendジョブを分離したため、needs（依存関係）を削除しました
+    needs: terraform-apply-backend
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -58,9 +58,6 @@ jobs:
         working-directory: ./my-project/01_network
 
       - name: 3-5, Terraform Plan
-        id: plan
-        # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
-        run: terraform plan -var-file="../00_backend/env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan
         working-directory: ./my-project/01_network
 
       - name: 3-6, Upload Plan Artifact
