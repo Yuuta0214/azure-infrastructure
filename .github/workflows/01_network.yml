@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 jobs:
-  # ※ ユーザー様の意図に基づき、terraform-plan-backend および terraform-apply-backend は
+  # ※terraform-plan-backend および terraform-apply-backend は
   # 01_network.yml からは除外し、networkのJobのみを維持します。
 
   # =============================================================
