@@ -34,26 +34,5 @@ provider "azurerm" {
       # これにより、一括削除コマンド（destroy）による事故を一段階防ぎます。
       prevent_deletion_if_contains_resources = true
     }
-
-    # ---------------------------------------------------------
-    # ストレージアカウントの保護設定（構文修正済み）
-    # ---------------------------------------------------------
-    # ※ features内に「storage_account」というブロック名は存在しないため、
-    # 関連する「storage_data_lake_gen2」等の設定でパージ防止を補完します。
-    storage_data_lake_gen2 {
-      # 削除失敗時に定義をロールバックし、不整合を防ぐ
-      rollback_definition_on_failure = true
-    }
-
-    # ---------------------------------------------------------
-    # Key Vaultの「救済」設定
-    # ---------------------------------------------------------
-    key_vault {
-      # 削除（destroy）を実行しても、一定期間は「論理削除」状態として保持し、
-      # 物理的な即時消去（パージ）を禁止します。
-      purge_soft_delete_on_destroy    = false
-      # 過去に論理削除された同じ名前のVaultがある場合、それを回復（再利用）する設定
-      recover_soft_deleted_key_vaults = true
-    }
   }
 }

@@ -62,11 +62,12 @@ resource "azurerm_storage_container" "tfstate_container" {
 }
 
 # ==========================================
-# 5. リソースロック (冪等性と安全性の両立)
+# 5. 【追加】運用・保守のベストプラクティス：削除ロック
 # ==========================================
-resource "azurerm_management_lock" "rg_lock" {
-  name       = "resourcelock-backend-rg"
-  scope      = azurerm_resource_group.mgmt_rg.id
+# terraform destroy 等の操作ミスによる、State基盤自体の物理削除を防止します。
+resource "azurerm_management_lock" "st_lock" {
+  name       = "st-delete-lock"
+  scope      = azurerm_storage_account.tfstate_sa.id
   lock_level = "CanNotDelete"
-  notes      = "このリソースグループを削除すると全インフラの管理図(State)が消失するため、削除を禁止しています。"
+  notes      = "Stateファイルを保持する重要なストレージのため、手動解除なしの削除を禁止します。"
 }
