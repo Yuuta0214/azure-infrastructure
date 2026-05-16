@@ -26,7 +26,7 @@ variable "project_name" {
   # 【命名規則】Azureリソース名の制限（英小文字・数字・ハイフン）に準拠させています
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
-    error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。"
+    error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。
   }
 }
 
@@ -60,7 +60,7 @@ variable "admin_password" {
   # 【セキュリティ】Azureの最小要件（12文字以上）を満たすよう制限しています
   validation {
     condition     = length(var.admin_password) >= 12
-    error_message = "Azure의ポリシーにより、パスワードは12文字以上である必要があります。"
+    error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
   }
 }
 
@@ -79,17 +79,15 @@ variable "tags" {
 }
 
 # ==========================================
-# 5. ネットワーク参照定義 (整合性のため必須)
+# 5. ネットワーク参照用変数 (不整合修正)
 # ==========================================
-
-# 【整合性】compute.tf (10. NIC作成) で使用。env-dev.tfvarsに記載があるため追加。
+# 【整合性】01_network層で作成されたリソースをcompute層で利用するための変数定義
 variable "subnet_id" {
-  description = "01_networkで構築済みの接続先サブネットID"
+  description = "01_networkで作成されたサブネットのリソースID"
   type        = string
 }
 
-# 【整合性】元々存在し、compute.tf (11. NICとLBの紐付け) で使用。
 variable "lb_backend_pool_id" {
-  description = "01_networkで作成済みのLBバックエンドプールID"
+  description = "01_networkで作成されたLoad BalancerバックエンドプールのリソースID"
   type        = string
 }

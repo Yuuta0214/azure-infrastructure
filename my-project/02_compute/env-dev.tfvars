@@ -16,7 +16,7 @@ vm_size      = "Standard_D2s_v3"
 admin_username = "azureuser"
 # 【整合性修正】variables.tfおよびcompute.tfで必須となっているパスワード定義を追加
 # 12文字以上のAzure要件およびvariables.tfのバリデーションに準拠する必要があります
-admin_password = "REPLACE_WITH_YOUR_SECURE_DEV_PASSWORD_12chars"
+admin_password = "ComplexPasswordDev2026!"
 ssh_public_key = ""
 
 # ==========================================
@@ -30,10 +30,8 @@ tags = {
 # ==========================================
 # 5. ネットワーク参照定義
 # ==========================================
-# 【修正】リソースグループ名やVNet名の整合性をdev環境用に修正
-# 正しい形式：/subscriptions/{sub_id}/resourceGroups/{rg_name}/providers/Microsoft.Network/virtualNetworks/{vnet_name}/subnets/{snet_name}
+# 【修正】01_network層との整合性：リソースグループ名が重複（rg-web-dev/rg-web-dev）していたパスを修正
 subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
 
-# 【整合性修正】compute.tf (11. NICとLBの紐付け) で使用される変数を追加
-# 01_network で構築した dev環境用のLBバックエンドプールを指定します
-lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lbi-web-dev/backendAddressPools/lbi-backend-pool"
+# 【修正】compute.tfの15行目で参照されている変数を追加（network層のLBリソースを指定）
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lb-web-dev/backendAddressPools/be-web-dev"

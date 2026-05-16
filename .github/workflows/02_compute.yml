@@ -1,7 +1,7 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
 ##########################################################################
-# 目的: 00_backend および 01_network の一括デプロイ
+# 目的: 02_compute 層（VM基盤）のデプロイ
 # 特徴: OIDC認証、Artifactによるプラン確認、層別の順次実行
 ##########################################################################
 name: '02-compute-Deploy'
@@ -50,8 +50,8 @@ jobs:
       - name: 5-5, Terraform Plan
         working-directory: ./my-project/02_compute
         run: |
+          # 【整合性修正】カレントディレクトリ内のtfvarsを正しく参照
           terraform plan \
-            -var="admin_password=${{ secrets.VM_ADMIN_PASSWORD }}" \
             -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
             -out=tfplan-compute
 
@@ -60,6 +60,7 @@ jobs:
         with:
           name: tfplan-compute-artifacts
           path: ./my-project/02_compute/tfplan-compute
+          retention-days: 7
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)

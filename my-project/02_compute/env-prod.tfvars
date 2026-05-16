@@ -14,9 +14,8 @@ vm_size      = "Standard_D2s_v3"
 # 3. 認証・セキュリティ定義
 # ==========================================
 admin_username = "azureuser"
-# 【整合性修正】variables.tfおよびcompute.tfで必須となっているパスワード定義を追加
-# ※実際の運用では GitHub Secrets 経由で上書きすることを推奨します
-admin_password = "REPLACE_WITH_YOUR_SECURE_PASSWORD_12chars"
+# 【整合性修正】variables.tfのバリデーション（12文字以上）に準拠した値を設定してください
+admin_password = "ComplexPasswordProd2026!"
 ssh_public_key = ""
 
 # ==========================================
@@ -30,8 +29,8 @@ tags = {
 # ==========================================
 # 5. ネットワーク参照定義 (追記箇所)
 # ==========================================
-# 【修正】プレースホルダーを実測値のサブスクリプションIDに置換し、本番環境のパスに修正
+# 【修正】01_network層との整合性：本番環境のサブネットIDを指定
 subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/virtualNetworks/vnet-web-prod/subnets/snet-backend"
 
-# 【修正】プレースホルダーを実測値のサブスクリプションIDに置換し、本番環境のLBバックエンドプールIDに修正
-lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbi-web-prod/backendAddressPools/lbi-backend-pool"
+# 【修正】compute.tfの15行目で参照されている変数を追加（network層のLBリソースを指定）
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lb-web-prod/backendAddressPools/be-web-prod"
