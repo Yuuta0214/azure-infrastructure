@@ -28,6 +28,7 @@ jobs:
       # 名前だけで解決する解決策Aを適用
       TF_VAR_subnet_id: "snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_lb_backend_pool_id: "be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
     steps:
       - name: 5-1, Checkout Code
@@ -83,6 +84,7 @@ jobs:
       # 重複していた長いパスのゴミを削除し、Plan側と一致させました
       TF_VAR_subnet_id: "snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_lb_backend_pool_id: "be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
     steps:
       - name: 6-1, Checkout Code
