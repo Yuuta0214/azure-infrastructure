@@ -1,18 +1,31 @@
 # ==========================================================================
-# 0. ネットワーク情報の定義
+# 02_compute / compute.tf
 # ==========================================================================
+
+# ==========================================
+# 0. 共通定義 (Locals)
+# base.tf 削除に伴い、整合性を維持するために必要な定義を移行
+# ==========================================
+locals {
+  resource_prefix = "${var.project_name}-${var.environment}"
+  common_tags = merge(var.tags, {
+    Environment = var.environment
+    Project     = var.project_name
+    ManagedBy   = "Terraform"
+  })
+}
 
 # ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
   name                = "nic-${local.resource_prefix}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  # 【整合性修正】01_network 層で作成済みのリソースグループと場所を変数から参照
+  location            = var.location
+  resource_group_name = var.resource_group_name
 
   ip_configuration {
     name                          = "internal"
-    # variables.tf の var.subnet_id を参照
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
@@ -32,7 +45,6 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # variables.tf で定義した変数名 (lb_backend_pool_id) を参照
   backend_address_pool_id = var.lb_backend_pool_id
 }
 
@@ -41,8 +53,9 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc
 # ==========================================
 resource "azurerm_linux_virtual_machine" "vm" {
   name                            = "vm-${local.resource_prefix}"
-  resource_group_name             = azurerm_resource_group.rg.name
-  location                        = azurerm_resource_group.rg.location
+  # 【整合性修正】既存のリソースグループ名・場所を参照
+  resource_group_name             = var.resource_group_name
+  location                        = var.location
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
@@ -70,7 +83,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   # ------------------------------------------
   # 13. プロビジョニング (カスタムデータ)
   # ------------------------------------------
-  # 提示されたディレクトリ構造 (scripts/bootstrap.sh) に基づきパスを修正
+  # 【整合性修正】提示されたディレクトリ構造 (scripts/bootstrap.sh) に基づきパスを指定
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
@@ -81,6 +94,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   lifecycle {
     ignore_changes = [
       tags["CreatedDate"],
+      custom_data, # 運用中のスクリプト変更による意図しない再起動/再作成を防止
     ]
   }
 }

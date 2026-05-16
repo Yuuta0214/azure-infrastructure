@@ -1,4 +1,8 @@
 # ==========================================
+# 02_compute / variables.tf
+# ==========================================
+
+# ==========================================
 # 1. 基盤・環境定義
 # ==========================================
 variable "location" {
@@ -25,6 +29,12 @@ variable "project_name" {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))
     error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。"
   }
+}
+
+# 【整合性修正】01_network で作成済みのリソースグループ名を受け取るために追加
+variable "resource_group_name" {
+  description = "01_network層で作成された既存のリソースグループ名"
+  type        = string
 }
 
 # ==========================================
@@ -72,16 +82,11 @@ variable "admin_password" {
   }
 }
 
-variable "ssh_public_key" {
-  description = "VMに接続するためのSSH公開鍵（パスワード認証使用時は空文字を指定可能）"
-  type        = string
-  default     = ""
-}
-
 # ==========================================
 # 5. メタデータ定義 (運用管理用)
 # ==========================================
 variable "tags" {
-  description = "すべてのリソースに付与する共通タグ"
+  description = "リソースに付与するタグのマップ"
   type        = map(string)
+  default     = {}
 }
