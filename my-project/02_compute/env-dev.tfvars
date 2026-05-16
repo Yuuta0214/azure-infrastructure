@@ -21,9 +21,11 @@ vm_size      = "Standard_D2s_v3"
 # ==========================================
 # 3. 認証・セキュリティ定義
 # ==========================================
+# セキュリティ・ベストプラクティス：variables.tf のバリデーション（admin/root等禁止）を遵守
 admin_username = "azureuser"
-# 12文字以上および複雑性の要件を遵守
-admin_password = "ComplexPasswordDev2026!"
+
+# セキュリティ・ベストプラクティス：12文字以上かつ複雑性の要件を遵守
+admin_password = "Dev-Secure-Pass-2026!"
 
 # ==========================================
 # 4. メタデータ定義 (運用管理用)
@@ -37,6 +39,9 @@ tags = {
 # ==========================================
 # 5. ネットワーク参照定義 (01_network層との整合性)
 # ==========================================
-# 【整合性修正】01_network で作成されたリソース名を正確に反映させた ID
-subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend"
-lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lb-web-dev/backendAddressPools/be-web-dev"
+# 【整合性修正】01_network/network.tf で定義された命名規則に基づき ID を正確に反映
+# サブネット名: snet-backend-${project_name}-${environment} -> snet-backend-web-dev
+subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/virtualNetworks/vnet-web-dev/subnets/snet-backend-web-dev"
+
+# 【整合性修正】01_network/outputs.tf の定義に準拠したバックエンドプール ID
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-dev/providers/Microsoft.Network/loadBalancers/lb-web-dev/backendAddressPools/be-pool-web-dev"

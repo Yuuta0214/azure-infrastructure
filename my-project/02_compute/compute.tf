@@ -26,6 +26,7 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
+    # variables.tf で定義されたサブネットIDを使用
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
@@ -45,6 +46,7 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
+  # variables.tf で定義した ALB バックエンドプール ID を参照
   backend_address_pool_id = var.lb_backend_pool_id
 }
 
@@ -59,7 +61,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                            = var.vm_size
   admin_username                  = var.admin_username
   
-  # セキュリティ設計: パスワード認証を有効化
+  # セキュリティ設計: パスワード認証を有効化（variables.tf のバリデーション済み）
   disable_password_authentication = false
   admin_password                  = var.admin_password
 
@@ -84,6 +86,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   # 13. プロビジョニング (カスタムデータ)
   # ------------------------------------------
   # 【整合性修正】提示されたディレクトリ構造 (scripts/bootstrap.sh) に基づきパスを指定
+  # 運用保守のベストプラクティス: 冪等性を確保した初期化スクリプトを注入
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
@@ -91,10 +94,11 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   tags = local.common_tags
 
+  # 誤削除防止のためのライフサイクル設定
   lifecycle {
     ignore_changes = [
       tags["CreatedDate"],
-      custom_data, # 運用中のスクリプト変更による意図しない再起動/再作成を防止
+      custom_data,
     ]
   }
 }

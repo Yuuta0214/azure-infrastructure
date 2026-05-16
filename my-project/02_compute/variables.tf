@@ -3,10 +3,10 @@
 # ==========================================
 
 # ==========================================
-# 1. 基盤・環境定義
+# 1. 基盤・環境定義 (01_network層との整合性)
 # ==========================================
 variable "location" {
-  description = "リソースを配置するリージョン"
+  description = "リソースを配置するリージョン (01_networkと一致させること)"
   type        = string
 }
 
@@ -31,7 +31,8 @@ variable "project_name" {
   }
 }
 
-# 【整合性修正】01_network で作成済みのリソースグループ名を受け取るために追加
+# 【整合性修正】01_network で作成済みのリソースグループ名を受け取るために定義
+# compute.tf 内の azurerm_network_interface 等で参照されます
 variable "resource_group_name" {
   description = "01_network層で作成された既存のリソースグループ名"
   type        = string
@@ -48,11 +49,13 @@ variable "vm_size" {
 # ==========================================
 # 3. ネットワーク参照定義 (01_network層との整合性)
 # ==========================================
+# network層の outputs.tf (backend_subnet_id) から渡される値を受け取ります
 variable "subnet_id" {
   description = "VMを配置するサブネットのリソースID"
   type        = string
 }
 
+# network層の outputs.tf (lb_backend_pool_id) から渡される値を受け取ります
 variable "lb_backend_pool_id" {
   description = "Load BalancerのバックエンドプールID"
   type        = string
@@ -65,6 +68,7 @@ variable "admin_username" {
   description = "VMの管理者ユーザー名"
   type        = string
 
+  # セキュリティ・ベストプラクティス：推測されやすい名前を禁止
   validation {
     condition     = !contains(["admin", "root", "dev", "user", "azure", "administrator"], var.admin_username)
     error_message = "セキュリティおよびAzureの制限により、これら特定の名称はユーザー名に使用できません。"
@@ -74,8 +78,9 @@ variable "admin_username" {
 variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
-  sensitive   = true
+  sensitive   = true # ログ出力防止
 
+  # セキュリティ・ベストプラクティス：Azureの複雑性要件および12文字以上の長さを強制
   validation {
     condition     = length(var.admin_password) >= 12
     error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
@@ -86,7 +91,7 @@ variable "admin_password" {
 # 5. メタデータ定義 (運用管理用)
 # ==========================================
 variable "tags" {
-  description = "リソースに付与するタグのマップ"
+  description = "リソースに付与する追加のカスタムタグ"
   type        = map(string)
   default     = {}
 }

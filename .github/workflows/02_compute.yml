@@ -1,10 +1,13 @@
 ##########################################################################
 # Azure Infrastructure Build Workflow (02_compute 層)
 ##########################################################################
+# 目的: 02_compute 層（VM基盤）のデプロイ
+# 特徴: OIDC認証、環境別State管理、Artifactによるプラン継承
+##########################################################################
 name: '02-compute-Deploy'
 
 on:
-  workflow_dispatch: # 手動実行のみ
+  workflow_dispatch: # 手動実行による制御
 
 permissions:
   contents: read
@@ -21,7 +24,7 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      # mainブランチならprod、それ以外はdevとして扱う整合性維持
+      # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
 
@@ -39,32 +42,36 @@ jobs:
       - name: 5-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.7.0
+          terraform_version: "1.7.0"
 
-      # 【整合性修正】00_backend との整合性を確保するため、動的にバックエンド情報を注入
       - name: 5-4, Terraform Init
+        # 【整合性修正】00_backend で作成した環境別ストレージへ動的に接続
         working-directory: ./my-project/02_compute
         run: |
-          if [ "${{ env.TARGET_ENV }}" = "prod" ]; then
-            RG_BACKEND="rg-web-prod-mgmt"
-            ST_BACKEND="stwebprodbackend"
-          else
-            RG_BACKEND="rg-web-dev-mgmt"
-            ST_BACKEND="stwebdevbackend"
-          fi
           terraform init \
-            -backend-config="resource_group_name=${RG_BACKEND}" \
-            -backend-config="storage_account_name=${ST_BACKEND}"
+            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}-mgmt" \
+            -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=compute.tfstate"
 
-      - name: 5-5, Terraform Plan
+      - name: 5-5, Terraform Format Check
         working-directory: ./my-project/02_compute
-        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan
+        run: terraform fmt -check
 
-      - name: 5-6, Upload Plan Artifact
+      - name: 5-6, Terraform Plan
+        # 【整合性修正】env-dev.tfvars または env-prod.tfvars を正確に選択
+        working-directory: ./my-project/02_compute
+        run: |
+          terraform plan \
+            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
+            -out=tfplan-compute
+
+      - name: 5-7, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute/tfplan
+          path: ./my-project/02_compute/tfplan-compute
+          retention-days: 1
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)
@@ -72,7 +79,8 @@ jobs:
   terraform-apply-compute:
     name: '6. Apply & Deploy (02_compute)'
     needs: terraform-plan-compute
-    environment: 'production'
+    if: github.event_name == 'workflow_dispatch'
+    environment: 'production' # 承認プロセスのため本番環境保護を推奨
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -101,23 +109,19 @@ jobs:
       - name: 6-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.7.0
+          terraform_version: "1.7.0"
 
-      # 【整合性修正】Apply時も同一のバックエンドを参照するようInitを構成
       - name: 6-5, Terraform Init
+        # 【整合性修正】Plan時と同一のバックエンド構成で初期化
         working-directory: ./my-project/02_compute
         run: |
-          if [ "${{ env.TARGET_ENV }}" = "prod" ]; then
-            RG_BACKEND="rg-web-prod-mgmt"
-            ST_BACKEND="stwebprodbackend"
-          else
-            RG_BACKEND="rg-web-dev-mgmt"
-            ST_BACKEND="stwebdevbackend"
-          fi
           terraform init \
-            -backend-config="resource_group_name=${RG_BACKEND}" \
-            -backend-config="storage_account_name=${ST_BACKEND}"
+            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}-mgmt" \
+            -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=compute.tfstate"
 
       - name: 6-6, Terraform Apply
+        # セキュリティ・運用ベストプラクティス: 保存されたプランのみを適用
         working-directory: ./my-project/02_compute
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve tfplan-compute
