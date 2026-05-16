@@ -14,6 +14,9 @@ vm_size      = "Standard_D2s_v3"
 # 3. 認証・セキュリティ定義
 # ==========================================
 admin_username = "azureuser"
+# 【整合性修正】variables.tfおよびcompute.tfで必須となっているパスワード定義を追加
+# ※実際の運用では GitHub Secrets 経由で上書きすることを推奨します
+admin_password = "REPLACE_WITH_YOUR_SECURE_PASSWORD_12chars"
 ssh_public_key = ""
 
 # ==========================================
@@ -31,4 +34,4 @@ tags = {
 subnet_id          = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/virtualNetworks/vnet-web-prod/subnets/snet-backend"
 
 # 【修正】プレースホルダーを実測値のサブスクリプションIDに置換し、本番環境のLBバックエンドプールIDに修正
-lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbe-web-prod/backendAddressPools/lbe-pool-web-prod"
+lb_backend_pool_id = "/subscriptions/0f273017-b259-421d-894c-ae7906f901c8/resourceGroups/rg-web-prod/providers/Microsoft.Network/loadBalancers/lbi-web-prod/backendAddressPools/lbi-backend-pool"

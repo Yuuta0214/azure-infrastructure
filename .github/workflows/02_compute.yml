@@ -4,7 +4,7 @@
 # 目的: 00_backend および 01_network の一括デプロイ
 # 特徴: OIDC認証、Artifactによるプラン確認、層別の順次実行
 ##########################################################################
-name: 'Azure Infrastructure Build'
+name: '02-compute-Deploy'
 
 on:
   workflow_dispatch: # 手動実行のみ
@@ -15,10 +15,10 @@ permissions:
 
 jobs:
   # =============================================================
-  # 1. Plan & Check (00_backend 層)
+  # 5. Plan & Check (02_compute 層)
   # =============================================================
-  terraform-plan-backend:
-    name: '1. Plan & Check (00_backend)'
+  terraform-plan-compute:
+    name: '5. Plan & Check (02_compute)'
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -28,44 +28,45 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
-      - name: 1-1, Checkout Code
+      - name: 5-1, Checkout Code
         uses: actions/checkout@v4
 
-      - name: 1-2, Azure Login (OIDC)
+      - name: 5-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 1-3, Setup Terraform
+      - name: 5-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: 1.7.0
 
-      - name: 1-4, Terraform Init
-        working-directory: ./my-project/00_backend
+      - name: 5-4, Terraform Init
+        working-directory: ./my-project/02_compute
         run: terraform init
 
-      - name: 1-5, Terraform Plan
-        working-directory: ./my-project/00_backend
+      - name: 5-5, Terraform Plan
+        working-directory: ./my-project/02_compute
         run: |
           terraform plan \
-            -var-file="../00_backend/env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-backend
+            -var="admin_password=${{ secrets.VM_ADMIN_PASSWORD }}" \
+            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
+            -out=tfplan-compute
 
-      - name: 1-6, Upload Plan Artifact
+      - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-backend-artifacts
-          path: ./my-project/00_backend/tfplan-backend
+          name: tfplan-compute-artifacts
+          path: ./my-project/02_compute/tfplan-compute
 
   # =============================================================
-  # 2. Apply & Deploy (00_backend 層)
+  # 6. Apply & Deploy (02_compute 層)
   # =============================================================
-  terraform-apply-backend:
-    name: '2. Apply & Deploy (00_backend)'
-    needs: terraform-plan-backend
+  terraform-apply-compute:
+    name: '6. Apply & Deploy (02_compute)'
+    needs: terraform-plan-compute
     environment: 'production'
     runs-on: ubuntu-latest
     env:
@@ -76,123 +77,31 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
-      - name: 2-1, Checkout Code
+      - name: 6-1, Checkout Code
         uses: actions/checkout@v4
 
-      - name: 2-2, Azure Login (OIDC)
+      - name: 6-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 2-3, Download Plan Artifact
+      - name: 6-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-backend-artifacts
-          path: ./my-project/00_backend
+          name: tfplan-compute-artifacts
+          path: ./my-project/02_compute
 
-      - name: 2-4, Setup Terraform
+      - name: 6-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: 1.7.0
 
-      - name: 2-5, Terraform Init
-        working-directory: ./my-project/00_backend
+      - name: 6-5, Terraform Init
+        working-directory: ./my-project/02_compute
         run: terraform init
 
-      - name: 2-6, Terraform Apply
-        working-directory: ./my-project/00_backend
-        run: terraform apply -auto-approve tfplan-backend
-
-  # =============================================================
-  # 3. Plan & Check (01_network 層)
-  # =============================================================
-  terraform-plan-network:
-    name: '3. Plan & Check (01_network)'
-    needs: terraform-apply-backend
-    runs-on: ubuntu-latest
-    env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      ARM_USE_OIDC: true
-
-    steps:
-      - name: 3-1, Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 3-2, Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: 3-3, Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.0"
-
-      - name: 3-4, Terraform Init
-        working-directory: ./my-project/01_network
-        run: terraform init
-
-      - name: 3-5, Terraform Plan
-        working-directory: ./my-project/01_network
-        run: |
-          terraform plan \
-            -var-file="../01_network/env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-network
-
-      - name: 3-6, Upload Plan Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-network-artifacts
-          path: ./my-project/01_network/tfplan-network
-
-  # =============================================================
-  # 4. Apply & Deploy (01_network 層)
-  # =============================================================
-  terraform-apply-network:
-    name: '4. Apply & Deploy (01_network)'
-    needs: terraform-plan-network
-    environment: 'production'
-    runs-on: ubuntu-latest
-    env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      ARM_USE_OIDC: true
-
-    steps:
-      - name: 4-1, Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 4-2, Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: 4-3, Download Plan Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-network-artifacts
-          path: ./my-project/01_network
-
-      - name: 4-4, Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.0"
-
-      - name: 4-5, Terraform Init
-        working-directory: ./my-project/01_network
-        run: terraform init
-
-      - name: 4-6, Terraform Apply
-        working-directory: ./my-project/01_network
-        run: terraform apply -auto-approve tfplan-network
+      - name: 6-6, Terraform Apply
+        working-directory: ./my-project/02_compute
+        run: terraform apply -auto-approve tfplan-compute

@@ -36,7 +36,6 @@ variable "project_name" {
 variable "vm_size" {
   description = "VMのサイズ（SKU）"
   type        = string
-  # 【可用性対策】在庫状況によるデプロイエラーを防ぐため、tfvars側で明示的に指定します
 }
 
 # ==========================================
@@ -61,7 +60,7 @@ variable "admin_password" {
   # 【セキュリティ】Azureの最小要件（12文字以上）を満たすよう制限しています
   validation {
     condition     = length(var.admin_password) >= 12
-    error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
+    error_message = "Azure의ポリシーにより、パスワードは12文字以上である必要があります。"
   }
 }
 
@@ -77,21 +76,19 @@ variable "ssh_public_key" {
 variable "tags" {
   description = "すべてのリソースに付与する共通タグ（BusinessUnit, Project等）"
   type        = map(string)
-  # 【設計上の注意】ManagedBy等の固定値は main.tf の locals で自動マージされるため、
-  # ここではプロジェクト固有のタグを受け取れるよう空のマップをデフォルトにしています
-  default     = {
-  }
 }
 
 # ==========================================
-# 5. ネットワーク参照定義 (フォルダ間独立用)
-# 修正点: compute.tf で使用する外部リソースIDを変数として定義
+# 5. ネットワーク参照定義 (整合性のため必須)
 # ==========================================
+
+# 【整合性】compute.tf (10. NIC作成) で使用。env-dev.tfvarsに記載があるため追加。
 variable "subnet_id" {
-  description = "01_networkで作成済みのサブネットID"
+  description = "01_networkで構築済みの接続先サブネットID"
   type        = string
 }
 
+# 【整合性】元々存在し、compute.tf (11. NICとLBの紐付け) で使用。
 variable "lb_backend_pool_id" {
   description = "01_networkで作成済みのLBバックエンドプールID"
   type        = string

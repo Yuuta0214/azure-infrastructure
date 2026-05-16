@@ -14,7 +14,7 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # 【修正】直接的なリソース参照を避け、変数（var.subnet_id）から取得するように変更
+    # 【整合性】変数（var.subnet_id）から取得し、01_networkのリソースと結合
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
@@ -33,10 +33,10 @@ resource "azurerm_network_interface" "nic" {
 # ==========================================
 # 11. NICとALBバックエンドプールの紐付け
 # ==========================================
-resource "azurerm_network_interface_backend_address_pool_association" "nic_lb_assoc" {
+resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # 【修正】直接的なリソース参照を避け、変数（var.lb_backend_pool_id）から取得するように変更
+  # 【整合性】変数（var.lb_backend_pool_id）から取得
   backend_address_pool_id = var.lb_backend_pool_id
 }
 
@@ -72,22 +72,17 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   # 13. プロビジョニング（Cloud-init）
+  # scripts/bootstrap.sh を使用して初期設定を実行
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
   }))
 
-  identity {
-    type = "SystemAssigned"
-  }
-
-  # main.tf で定義された local.common_tags を参照
   tags = local.common_tags
 
   lifecycle {
     ignore_changes = [
-      admin_password,      # パスワード変更による意図しない再起動を防止
-      tags["CreatedDate"], # 翌日以降のデプロイで日付が更新されるのを防止
+      tags["CreatedDate"],
     ]
   }
 }
