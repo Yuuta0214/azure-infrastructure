@@ -108,7 +108,6 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 6-5, Terraform Init
-        working-directory: ./my-project/02_compute
         run: |
           terraform init \
             -backend-config="resource_group_name=rg-web-dev-mgmt" \
@@ -118,5 +117,6 @@ jobs:
         working-directory: ./my-project/02_compute
 
       - name: 6-6, Terraform Apply
-        working-directory: ./my-project/02_compute
         run: terraform apply -auto-approve tfplan-compute
+        working-directory: ./my-project/02_compute
+        
