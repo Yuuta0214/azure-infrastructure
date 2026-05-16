@@ -1,110 +1,126 @@
-# ==========================================
-# 0. 共通定義 (Locals)
-# ==========================================
-locals {
-  resource_prefix = "${var.project_name}-${var.environment}"
-  common_tags = merge(var.tags, {
-    Environment = var.environment
-    Project     = var.project_name
-    ManagedBy   = "Terraform"
-  })
-}
+##########################################################################
+# Azure Infrastructure Build Workflow (修正版)
+##########################################################################
+name: '02-compute-Deploy'
 
-# ==========================================
-# 0.5 既存リソースの動的取得 (Data Sources)
-# ==========================================
-# 既存のネットワーク層からサブネット情報を取得
-data "azurerm_subnet" "existing" {
-  name                 = "snet-web-${var.environment}"
-  virtual_network_name = "vnet-web-${var.environment}"
-  resource_group_name  = "rg-web-${var.environment}"
-}
+on:
+  workflow_dispatch: # 手動実行
 
-# 既存のロードバランサーからバックエンドプール情報を取得
-data "azurerm_lb_backend_address_pool" "existing" {
-  name            = "be-web-${var.environment}"
-  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
-}
+permissions:
+  contents: read
+  id-token: write
 
-# ==========================================
-# 10. ネットワークインターフェース（NIC）の作成
-# ==========================================
-resource "azurerm_network_interface" "nic" {
-  name                = "nic-${local.resource_prefix}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
+jobs:
+  # =============================================================
+  # 5. Plan & Check (02_compute 層)
+  # =============================================================
+  terraform-plan-compute:
+    name: '5. Plan & Check (02_compute)'
+    runs-on: ubuntu-latest
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+      # 02_compute.yml の env セクションを以下に差し替え
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # 以下の2つを「名前」ではなく「フルパス」に！
+      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
-  ip_configuration {
-    name                          = "internal"
-    # dataソースから動的に取得したIDを使用 [cite: 5, 6]
-    subnet_id                     = data.azurerm_subnet.existing.id
-    private_ip_address_allocation = "Dynamic"
-  }
+    steps:
+      - name: 5-1, Checkout Code
+        uses: actions/checkout@v4
 
-  tags = local.common_tags
+      - name: 5-2, Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-  lifecycle {
-    ignore_changes = [
-      tags["CreatedDate"],
-    ]
-  }
-}
+      - name: 5-3, Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
 
-# ==========================================
-# 11. NICとALBバックエンドプールの紐付け
-# ==========================================
-resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
-  network_interface_id    = azurerm_network_interface.nic.id
-  ip_configuration_name   = "internal"
-  # dataソースから動的に取得したIDを使用 [cite: 7]
-  backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
-}
+      - name: 5-4, Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=rg-web-dev-mgmt" \
+            -backend-config="storage_account_name=stwebdevbackend" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=compute.tfstate"
+        working-directory: ./my-project/02_compute
 
-# ==========================================
-# 12. Linux 仮想マシン（VM）の作成
-# ==========================================
-resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "vm-${local.resource_prefix}"
-  resource_group_name = var.resource_group_name
-  location            = var.location
-  size                = var.vm_size
-  admin_username      = var.admin_username
+      - name: 5-5, Terraform Plan
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
+        working-directory: ./my-project/02_compute
 
-  # セキュリティ設計: パスワード認証を有効化 [cite: 8]
-  disable_password_authentication = false
-  admin_password                  = var.admin_password
+      - name: 5-6, Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-compute-artifacts
+          path: ./my-project/02_compute/tfplan-compute
 
-  network_interface_ids = [
-    azurerm_network_interface.nic.id,
-  ]
+  # =============================================================
+  # 6. Apply & Deploy (02_compute 層)
+  # =============================================================
+  terraform-apply-compute:
+    name: '6. Apply & Deploy (02_compute)'
+    needs: terraform-plan-compute
+    environment: 'production' 
+    runs-on: ubuntu-latest
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+      # 02_compute.yml の env セクションを以下に差し替え
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # 以下の2つを「名前」ではなく「フルパス」に！
+      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
-  os_disk {
-    name                 = "osdisk-vm-${local.resource_prefix}"
-    caching              = "ReadWrite"
-    storage_account_type = "StandardSSD_LRS"
-  }
+    steps:
+      - name: 6-1, Checkout Code
+        uses: actions/checkout@v4
 
-  source_image_reference {
-    publisher = "debian"
-    offer     = "debian-12"
-    sku       = "12-gen2"
-    version   = "latest" [cite: 9]
-  }
+      - name: 6-2, Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-  # ------------------------------------------
-  # 13. プロビジョニング (カスタムデータ)
-  # ------------------------------------------
-  custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
-    hostname       = "vm-${local.resource_prefix}"
-    admin_username = var.admin_username
-  }))
+      - name: 6-3, Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-compute-artifacts
+          path: ./my-project/02_compute
 
-  tags = local.common_tags
+      - name: 6-4, Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
 
-  lifecycle {
-    ignore_changes = [
-      tags["CreatedDate"],
-      custom_data,
-    ]
-  }
-}
+      - name: 6-5, Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=rg-web-dev-mgmt" \
+            -backend-config="storage_account_name=stwebdevbackend" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=compute.tfstate"
+        working-directory: ./my-project/02_compute
+
+      - name: 6-6, Terraform Apply
+        run: terraform apply -auto-approve tfplan-compute
+        working-directory: ./my-project/02_compute
