@@ -52,8 +52,8 @@ jobs:
         id: init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}" \
-            -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
+            -backend-config="resource_group_name=rg-web-dev-mgmt" \
+            -backend-config="storage_account_name=stwebdevbackend" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=02_compute.tfstate"
         working-directory: ./my-project/02_compute
