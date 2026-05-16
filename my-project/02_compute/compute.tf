@@ -21,7 +21,7 @@ resource "azurerm_network_interface" "nic" {
   ip_configuration {
     name                          = "internal"
     # 【重要】var.subnet_id ではなく data から取得したIDを使用
-    subnet_id                     = data.azurerm_subnet.existing.id
+    subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
 
@@ -35,7 +35,7 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
   # 【重要】var.lb_backend_pool_id ではなく data から取得したIDを使用
-  backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
+  backend_address_pool_id = var.lb_backend_pool_id
 }
 
 # ==========================================
