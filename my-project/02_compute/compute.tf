@@ -11,6 +11,21 @@ locals {
 }
 
 # ==========================================
+# 0.5 既存リソースの動的取得 (Data Sources)
+# ==========================================
+data "azurerm_subnet" "existing" {
+  name                 = "snet-web-${var.environment}"
+  virtual_network_name = "vnet-web-${var.environment}"
+  resource_group_name  = "rg-web-${var.environment}"
+}
+
+data "azurerm_lb_backend_address_pool" "existing" {
+  name            = "be-web-${var.environment}"
+  # ここで var.subscription_id を使用するため、variables.tf にこれだけは必要です
+  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
+}
+
+# ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
@@ -20,17 +35,12 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = var.subnet_id
+    # 【重要】var.subnet_id ではなく data から取得したIDを使用
+    subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
 
   tags = local.common_tags
-
-  lifecycle {
-    ignore_changes = [
-      tags["CreatedDate"],
-    ]
-  }
 }
 
 # ==========================================
@@ -39,7 +49,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  backend_address_pool_id = var.lb_backend_pool_id
+  # 【重要】var.lb_backend_pool_id ではなく data から取得したIDを使用
+  backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
 }
 
 # ==========================================
@@ -52,13 +63,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                = var.vm_size
   admin_username      = var.admin_username
 
-  # セキュリティ設計: パスワード認証を有効化（要件に基づき維持）
   disable_password_authentication = false
   admin_password                  = var.admin_password
 
-  network_interface_ids = [
-    azurerm_network_interface.nic.id,
-  ]
+  network_interface_ids = [azurerm_network_interface.nic.id]
 
   os_disk {
     name                 = "osdisk-vm-${local.resource_prefix}"
@@ -73,20 +81,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # ------------------------------------------
-  # 13. プロビジョニング (カスタムデータ)
-  # ------------------------------------------
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
   }))
 
   tags = local.common_tags
-
-  lifecycle {
-    ignore_changes = [
-      tags["CreatedDate"],
-      custom_data,
-    ]
-  }
 }
