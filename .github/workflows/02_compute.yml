@@ -92,6 +92,9 @@ jobs:
       # 実行時にも Secrets から変数を注入
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      # dev や prod を ${{ env.TARGET_ENV }} に置き換える
+      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ env.TARGET_ENV }}/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ env.TARGET_ENV }}/subnets/snet-web-${{ env.TARGET_ENV }}"
+      TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ env.TARGET_ENV }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ env.TARGET_ENV }}/backendAddressPools/be-web-${{ env.TARGET_ENV }}"
 
 
     steps:
