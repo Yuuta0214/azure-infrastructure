@@ -1,8 +1,5 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
-##########################################################################
-# 目的: 02_compute 層（VM基盤）のデプロイ
-# 特徴: OIDC認証、Artifactによるプラン確認、層別の順次実行
+# Azure Infrastructure Build Workflow (02_compute 層)
 ##########################################################################
 name: '02-compute-Deploy'
 
@@ -24,6 +21,7 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      # mainブランチならprod、それ以外はdevとして扱う整合性維持
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
 
@@ -43,24 +41,30 @@ jobs:
         with:
           terraform_version: 1.7.0
 
+      # 【整合性修正】00_backend との整合性を確保するため、動的にバックエンド情報を注入
       - name: 5-4, Terraform Init
         working-directory: ./my-project/02_compute
-        run: terraform init
+        run: |
+          if [ "${{ env.TARGET_ENV }}" = "prod" ]; then
+            RG_BACKEND="rg-web-prod-mgmt"
+            ST_BACKEND="stwebprodbackend"
+          else
+            RG_BACKEND="rg-web-dev-mgmt"
+            ST_BACKEND="stwebdevbackend"
+          fi
+          terraform init \
+            -backend-config="resource_group_name=${RG_BACKEND}" \
+            -backend-config="storage_account_name=${ST_BACKEND}"
 
       - name: 5-5, Terraform Plan
         working-directory: ./my-project/02_compute
-        run: |
-          # 【整合性修正】カレントディレクトリ内のtfvarsを正しく参照
-          terraform plan \
-            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-compute
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan
 
       - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute/tfplan-compute
-          retention-days: 7
+          path: ./my-project/02_compute/tfplan
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)
@@ -99,10 +103,21 @@ jobs:
         with:
           terraform_version: 1.7.0
 
+      # 【整合性修正】Apply時も同一のバックエンドを参照するようInitを構成
       - name: 6-5, Terraform Init
         working-directory: ./my-project/02_compute
-        run: terraform init
+        run: |
+          if [ "${{ env.TARGET_ENV }}" = "prod" ]; then
+            RG_BACKEND="rg-web-prod-mgmt"
+            ST_BACKEND="stwebprodbackend"
+          else
+            RG_BACKEND="rg-web-dev-mgmt"
+            ST_BACKEND="stwebdevbackend"
+          fi
+          terraform init \
+            -backend-config="resource_group_name=${RG_BACKEND}" \
+            -backend-config="storage_account_name=${ST_BACKEND}"
 
       - name: 6-6, Terraform Apply
         working-directory: ./my-project/02_compute
-        run: terraform apply -auto-approve tfplan-compute
+        run: terraform apply -auto-approve tfplan
