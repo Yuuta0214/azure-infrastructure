@@ -1,8 +1,8 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
+# Azure Infrastructure Build Workflow (02_compute 層)
 ##########################################################################
 # 目的: 02_compute 層（VM基盤）のデプロイ
-# 特徴: OIDC認証、Artifactによるプラン継承
+# 特徴: OIDC認証、環境別State管理、Artifactによるプラン継承
 ##########################################################################
 name: '02-compute-Deploy'
 
@@ -14,15 +14,11 @@ permissions:
   id-token: write
 
 jobs:
-  # ※ ユーザー様の意図に基づき、terraform-plan-backend および terraform-apply-backend は
-
-
   # =============================================================
   # 5. Plan & Check (02_compute 層)
   # =============================================================
   terraform-plan-compute:
     name: '5. Plan & Check (02_compute)'
-    # backendジョブを分離したため、needs（依存関係）を削除済み
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -31,6 +27,9 @@ jobs:
       # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
+      # GitHub Secrets から変数を注入 (variables.tf との整合性)
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
 
     steps:
       - name: 5-1, Checkout Code
@@ -49,20 +48,17 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 5-4, Terraform Init
-        id: init
+        working-directory: ./my-project/02_compute
         run: |
           terraform init \
             -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}" \
             -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=02_compute.tfstate"
-        working-directory: ./my-project/02_compute
 
       - name: 5-5, Terraform Plan
-        init: plan
-        # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
-        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
         working-directory: ./my-project/02_compute
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
 
       - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
@@ -86,6 +82,8 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
       # 実行時にも Secrets から変数を注入
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
 
     steps:
       - name: 6-1, Checkout Code
