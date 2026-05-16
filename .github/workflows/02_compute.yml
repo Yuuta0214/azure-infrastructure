@@ -84,19 +84,17 @@ jobs:
     environment: 'production' 
     runs-on: ubuntu-latest
     env:
-      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      ARM_USE_OIDC: true
-      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }} # ここで定義
-      # 実行時にも Secrets から変数を注入
-      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
-      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-      # dev や prod を ${{ env.TARGET_ENV }} に置き換える
-      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
-      TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_USE_OIDC: true
+          TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
 
+          # 文字列の中は先ほどお伝えした「直接ロジックを書く」方法で記述します
+          TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+          TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
     steps:
       - name: 6-1, Checkout Code
