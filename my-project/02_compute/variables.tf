@@ -79,3 +79,15 @@ variable "tags" {
 variable "subscription_id" {
   type        = string
 }
+
+# ==========================================
+# ※追加
+# ==========================================
+
+variable "subnet_id" {
+  type = string
+}
+
+variable "lb_backend_pool_id" {
+  type = string
+}

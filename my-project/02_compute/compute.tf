@@ -11,21 +11,6 @@ locals {
 }
 
 # ==========================================
-# 0.5 既存リソースの動的取得 (Data Sources)
-# ==========================================
-data "azurerm_subnet" "existing" {
-  name                 = "snet-web-${var.environment}"
-  virtual_network_name = "vnet-web-${var.environment}"
-  resource_group_name  = "rg-web-${var.environment}"
-}
-
-data "azurerm_lb_backend_address_pool" "existing" {
-  name            = "be-web-${var.environment}"
-  # ここで var.subscription_id を使用するため、variables.tf にこれだけは必要です
-  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
-}
-
-# ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
