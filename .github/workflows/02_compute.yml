@@ -31,6 +31,10 @@ jobs:
       # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
+      # GitHub Secrets から変数を注入 (variables.tf との整合性)
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+
 
     steps:
       - name: 5-1, Checkout Code
@@ -86,6 +90,9 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
       # 実行時にも Secrets から変数を注入
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+
 
     steps:
       - name: 6-1, Checkout Code
