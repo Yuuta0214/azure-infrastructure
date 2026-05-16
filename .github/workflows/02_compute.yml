@@ -1,44 +1,33 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (お手本準拠・安全設計版)
-##########################################################################
-# 目的: 02_compute 層（VM基盤）のデプロイ
-# 特徴: OIDC認証、Artifactによるプラン継承
+# Azure Infrastructure Build Workflow (修正版)
 ##########################################################################
 name: '02-compute-Deploy'
 
 on:
-  workflow_dispatch: # 手動実行による制御
+  workflow_dispatch: # 手動実行
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  # ※ ユーザー様の意図に基づき、terraform-plan-backend および terraform-apply-backend は
-
-
   # =============================================================
   # 5. Plan & Check (02_compute 層)
   # =============================================================
   terraform-plan-compute:
     name: '5. Plan & Check (02_compute)'
-    # backendジョブを分離したため、needs（依存関係）を削除済み
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
-      # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      # GitHub Secrets から変数を注入 (variables.tf との整合性)
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-
-      # 文字列の中は先ほどお伝えした「直接ロジックを書く」方法で記述します
+      # 名前だけで解決する解決策Aを適用
       TF_VAR_subnet_id: "snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_lb_backend_pool_id: "be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
-
 
     steps:
       - name: 5-1, Checkout Code
@@ -57,7 +46,6 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 5-4, Terraform Init
-        id: init
         run: |
           terraform init \
             -backend-config="resource_group_name=rg-web-dev-mgmt" \
@@ -67,8 +55,6 @@ jobs:
         working-directory: ./my-project/02_compute
 
       - name: 5-5, Terraform Plan
-        id: plan
-        # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
         working-directory: ./my-project/02_compute
 
@@ -84,23 +70,19 @@ jobs:
   terraform-apply-compute:
     name: '6. Apply & Deploy (02_compute)'
     needs: terraform-plan-compute
-    # GitHubのEnvironment機能により承認フローを構成
     environment: 'production' 
     runs-on: ubuntu-latest
     env:
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ARM_USE_OIDC: true
-          # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
-          TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-          # GitHub Secrets から変数を注入 (variables.tf との整合性)
-          TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
-          TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-
-          # 文字列の中は先ほどお伝えした「直接ロジックを書く」方法で記述します
-          TF_VAR_subnet_id: "snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
-          TF_VAR_lb_backend_pool_id: "be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_USE_OIDC: true
+      TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      # 重複していた長いパスのゴミを削除し、Plan側と一致させました
+      TF_VAR_subnet_id: "snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_lb_backend_pool_id: "be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
     steps:
       - name: 6-1, Checkout Code
@@ -136,4 +118,3 @@ jobs:
       - name: 6-6, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
-        
