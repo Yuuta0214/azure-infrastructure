@@ -1,20 +1,15 @@
 # ==========================================
 # 1. 基盤・環境定義
 # ==========================================
-location     = "japaneast"
-environment  = "prod"
+location     = "japanwest"
+environment  = "dev"
 project_name = "web"
 
 # ==========================================
-# 2. コンピューティング定義 (VMスペック)
-# ==========================================
-vm_size      = "Standard_D2s_v3"
-
-# ==========================================
-# 3. メタデータ定義 (運用管理用)
+# 2. メタデータ定義 (運用管理用)
 # ==========================================
 # main.tf で自動付与される項目（Environment等）を除いた「固有の値」だけを書く
 tags = {
-  BusinessUnit = "Production-Ops"
-  CostCenter   = "WEB-101"
+  BusinessUnit = "Production-Dev"
+  CostCenter   = "WEB-201"
 }

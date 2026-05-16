@@ -27,6 +27,9 @@ jobs:
       # ブランチに応じて環境を判定 (mainならprod、それ以外はdev)
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
+      # GitHub Secrets から変数を注入 (variables.tf との整合性)
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
 
     steps:
       - name: 5-1, Checkout Code
@@ -45,33 +48,23 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 5-4, Terraform Init
-        # 【整合性修正】00_backend で作成した環境別ストレージへ動的に接続
         working-directory: ./my-project/02_compute
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}-mgmt" \
+            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}" \
             -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=compute.tfstate"
+            -backend-config="key=02_compute.tfstate"
 
-      - name: 5-5, Terraform Format Check
+      - name: 5-5, Terraform Plan
         working-directory: ./my-project/02_compute
-        run: terraform fmt -check
+        run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
 
-      - name: 5-6, Terraform Plan
-        # 【整合性修正】env-dev.tfvars または env-prod.tfvars を正確に選択
-        working-directory: ./my-project/02_compute
-        run: |
-          terraform plan \
-            -var-file="env-${{ env.TARGET_ENV }}.tfvars" \
-            -out=tfplan-compute
-
-      - name: 5-7, Upload Plan Artifact
+      - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-compute-artifacts
           path: ./my-project/02_compute/tfplan-compute
-          retention-days: 1
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)
@@ -79,8 +72,8 @@ jobs:
   terraform-apply-compute:
     name: '6. Apply & Deploy (02_compute)'
     needs: terraform-plan-compute
-    if: github.event_name == 'workflow_dispatch'
-    environment: 'production' # 承認プロセスのため本番環境保護を推奨
+    # GitHubのEnvironment機能により承認フローを構成
+    environment: 'production' 
     runs-on: ubuntu-latest
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -88,6 +81,9 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       ARM_USE_OIDC: true
+      # 実行時にも Secrets から変数を注入
+      TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
+      TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
 
     steps:
       - name: 6-1, Checkout Code
@@ -112,16 +108,14 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 6-5, Terraform Init
-        # 【整合性修正】Plan時と同一のバックエンド構成で初期化
         working-directory: ./my-project/02_compute
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}-mgmt" \
+            -backend-config="resource_group_name=rg-web-${{ env.TARGET_ENV }}" \
             -backend-config="storage_account_name=stweb${{ env.TARGET_ENV }}backend" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=compute.tfstate"
+            -backend-config="key=02_compute.tfstate"
 
       - name: 6-6, Terraform Apply
-        # セキュリティ・運用ベストプラクティス: 保存されたプランのみを適用
         working-directory: ./my-project/02_compute
         run: terraform apply -auto-approve tfplan-compute

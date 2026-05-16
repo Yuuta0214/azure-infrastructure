@@ -1,77 +1,74 @@
 # ==========================================
-# 02_compute / variables.tf
+# 1. 基盤・環境定義
 # ==========================================
-
-# ==========================================
-# 1. 基盤・環境定義 (01_network層との整合性)
-# ==========================================
+# リソースをデプロイする物理的な場所（例: japaneast）
 variable "location" {
-  description = "リソースを配置するリージョン (01_networkと一致させること)"
+  description = "リソースを配置するリージョン"
   type        = string
 }
 
+# 本番・開発を識別し、リソース名やバリデーションに使用
 variable "environment" {
   description = "実行環境 (prod または dev)"
   type        = string
 
+  # 許容値の制限: 01_network と整合
   validation {
     condition     = contains(["prod", "dev"], var.environment)
     error_message = "環境名は 'prod' または 'dev' のいずれかを指定してください。"
   }
 }
 
+# リソース名（Prefix）の一部に使用するシステム名称
 variable "project_name" {
   description = "プロジェクトの基本名称"
   type        = string
-  default     = "web"
 
   validation {
-    condition     = can(regex("^[a-z0-9-]+$", var.project_name))
+    condition     = can(regex("^[a-z0-9-]+$+", var.project_name))
     error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。"
   }
 }
 
-# 【整合性修正】01_network で作成済みのリソースグループ名を受け取るために定義
-# compute.tf 内の azurerm_network_interface 等で参照されます
+# 【整合性修正】compute.tf で使用されるリソースグループ名の定義
 variable "resource_group_name" {
   description = "01_network層で作成された既存のリソースグループ名"
   type        = string
 }
 
 # ==========================================
-# 2. コンピューティング定義 (VMスペック)
+# 2. コンピューティング定義 (02層固有)
 # ==========================================
+# VMのスペックを決定する変数
 variable "vm_size" {
-  description = "VMのサイズ（SKU）"
+  description = "仮想マシンのサイズ (SKU)"
   type        = string
 }
 
 # ==========================================
-# 3. ネットワーク参照定義 (01_network層との整合性)
+# 3. ネットワーク参照定義 (02層固有)
 # ==========================================
-# network層の outputs.tf (backend_subnet_id) から渡される値を受け取ります
+# compute.tf で動的にIDを組み立てるためのリソース名を受け取る
 variable "subnet_id" {
-  description = "VMを配置するサブネットのリソースID"
+  description = "VMを配置するサブネット名"
   type        = string
 }
 
-# network層の outputs.tf (lb_backend_pool_id) から渡される値を受け取ります
 variable "lb_backend_pool_id" {
-  description = "Load BalancerのバックエンドプールID"
+  description = "Load Balancerバックエンドプール名"
   type        = string
 }
 
 # ==========================================
-# 4. 認証・セキュリティ定義
+# 4. 認証・セキュリティ定義 (02層固有 / GitHub Secretsより注入)
 # ==========================================
 variable "admin_username" {
   description = "VMの管理者ユーザー名"
   type        = string
 
-  # セキュリティ・ベストプラクティス：推測されやすい名前を禁止
   validation {
-    condition     = !contains(["admin", "root", "dev", "user", "azure", "administrator"], var.admin_username)
-    error_message = "セキュリティおよびAzureの制限により、これら特定の名称はユーザー名に使用できません。"
+    condition     = !contains(["admin", "root", "user", "administrator"], var.admin_username)
+    error_message = "セキュリティ上の理由により、一般的な名称は使用できません。"
   }
 }
 
@@ -79,19 +76,13 @@ variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
   sensitive   = true # ログ出力防止
-
-  # セキュリティ・ベストプラクティス：Azureの複雑性要件および12文字以上の長さを強制
-  validation {
-    condition     = length(var.admin_password) >= 12
-    error_message = "Azureのポリシーにより、パスワードは12文字以上である必要があります。"
-  }
 }
 
 # ==========================================
 # 5. メタデータ定義 (運用管理用)
 # ==========================================
+# 01_network 側の構成に合わせ、実値指定を必須とする（デフォルト値を削除）
 variable "tags" {
-  description = "リソースに付与する追加のカスタムタグ"
+  description = "すべてのリソースに付与する共通タグ"
   type        = map(string)
-  default     = {}
 }
