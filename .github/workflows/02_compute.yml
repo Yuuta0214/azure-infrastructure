@@ -59,7 +59,7 @@ jobs:
         working-directory: ./my-project/02_compute
 
       - name: 5-5, Terraform Plan
-        init: plan
+        id: plan
         # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
         working-directory: ./my-project/02_compute
