@@ -13,17 +13,21 @@ locals {
 # ==========================================
 # 0.5 既存リソースの動的取得 (Data Sources)
 # ==========================================
-# 画像で確認した通り「rg-web-dev」を指定して取得します
+# 画像で存在が確認できている「rg-web-dev」内のリソースを直接参照します。
 data "azurerm_subnet" "existing" {
+  # ★画像には vnet-web-dev しか映っていません。
+  # もしサブネット名が snet-web-dev でない場合は、Azureポータルで
+  # vnet-web-dev の中にある実際のサブネット名を確認し、ここを書き換えてください。
   name                 = "snet-web-${var.environment}"
   virtual_network_name = "vnet-web-${var.environment}"
-  # NIC作成場所とは別に、ネットワークが存在するRG（mgmtなし）を明示
   resource_group_name  = "rg-web-${var.environment}" 
 }
 
 data "azurerm_lb_backend_address_pool" "existing" {
+  # ★画像には lb-web-dev しか映っていません。
+  # バックエンドプール名が be-web-dev でない場合は、Azureポータルで
+  # lb-web-dev の設定画面にある実際のプール名を確認し、ここを書き換えてください。
   name            = "be-web-${var.environment}"
-  # ロードバランサーも mgmt なしのRGパスで指定
   loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
 }
 
@@ -33,15 +37,15 @@ data "azurerm_lb_backend_address_pool" "existing" {
 resource "azurerm_network_interface" "nic" {
   name                = "nic-${local.resource_prefix}"
   location            = var.location
-  # NIC自体は mgmt 側のRG（var.resource_group_name）に作成
   resource_group_name = var.resource_group_name
 
   ip_configuration {
     name                          = "internal"
+    # data ブロックで取得した ID を使用（変数の依存を排除）
     subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
-  
+
   tags = local.common_tags
 }
 
@@ -51,7 +55,7 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # data ブロックで動的に取得した正確な ID を適用
+  # data ブロックで取得した ID を使用（変数の依存を排除）
   backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
 }
 
