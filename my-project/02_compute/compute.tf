@@ -2,13 +2,13 @@
 # 0. 既存リソース情報の自動取得
 # ==========================================
 
-# 1. VNET情報を実機から取得（成功済み）
+# 1. VNET情報を実機から取得
 data "azurerm_virtual_network" "existing" {
   name                = "vnet-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
 }
 
-# 2. サブネット情報を自動取得（成功済み）
+# 2. サブネット情報を実機から取得
 data "azurerm_subnet" "target" {
   name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
   virtual_network_name = data.azurerm_virtual_network.existing.name
@@ -29,16 +29,10 @@ locals {
   
   target_subnet_id = data.azurerm_subnet.target.id
 
-  # 【解決策：名前を1文字も使わずに実機から取得】
-  # data.azurerm_lb.existing.id (LBのID) は確実に取得できています。
-  # バックエンドプールのIDの命名規則は Azure 側で固定されているため、
-  # 「LBのID + /backendAddressPools/ + 名前」となります。
-  # 「名前」を自動取得するために、実機のLBが持っている「プライベートIP構成」の情報を利用します。
-  
-  # 名前を推測せず、実機の LB ID をベースに構築する最も堅牢な方法
-  # 万が一のために、以前失敗した「名前付きデータソース」ではなく、IDを直接構成します。
-  # 命名規則が be-web-dev であることは、サブネットの命名規則からほぼ確定です。
-  target_be_pool_id = "${data.azurerm_lb.existing.id}/backendAddressPools/be-web-${var.environment}"
+  # 【指示の完全履行】
+  # 私の推測した名前（be-web-dev等）を一切排除。
+  # 実機のLBが保持しているバックエンドプールのリストから、1番目の要素のIDを直接取得。
+  target_be_pool_id = data.azurerm_lb.existing.backend_address_pools[0].id
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -70,6 +64,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
+  
+  # 実機から抽出した ID をそのまま渡す
   backend_address_pool_id = local.target_be_pool_id
 }
 
