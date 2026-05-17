@@ -9,7 +9,6 @@ data "azurerm_virtual_network" "existing" {
 }
 
 # 2. サブネット情報を自動取得 (リストの0番目)
-# あなたの環境で成功している「実機から動的に拾う」ロジックです
 data "azurerm_subnet" "target" {
   name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
   virtual_network_name = data.azurerm_virtual_network.existing.name
@@ -22,6 +21,13 @@ data "azurerm_lb" "existing" {
   resource_group_name = "rg-web-${var.environment}"
 }
 
+# 4. 【重要】方法A：実機のバックエンドプール名を指定して情報を取得
+# ※変数を介して「BackendPool-web-dev」を渡すことで、存在しない属性エラーを回避します
+data "azurerm_lb_backend_address_pool" "target" {
+  name            = var.lb_backend_pool_name
+  loadbalancer_id = data.azurerm_lb.existing.id
+}
+
 # ==========================================
 # 0. 共通定義 (Locals)
 # ==========================================
@@ -30,11 +36,8 @@ locals {
   
   target_subnet_id = data.azurerm_subnet.target.id
 
-  # 【完全解決】名前の決め打ち（BackendPool-web-dev等）を1文字も使いません。
-  # ロードバランサーが保持しているバックエンドプールのIDリストから、
-  # サブネットと同様に「最初の要素（index 0）」を自動で抜き出します。
-  # これにより、実機で名前が何であっても、変更されても、エラーなく追従します。
-  target_be_pool_id = tolist(data.azurerm_lb.existing.backend_address_pool_ids)[0]
+  # データソースから取得した「本物のID」をセットします
+  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -67,7 +70,7 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
   
-  # 実機から動的に取得した ID を使用
+  # dataブロックで解決した正確なIDを使用
   backend_address_pool_id = local.target_be_pool_id
 }
 
@@ -99,7 +102,6 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # スクリプトファイルを参照（パスはプロジェクト構成に準拠）
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username

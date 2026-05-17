@@ -79,3 +79,11 @@ variable "tags" {
 variable "subscription_id" {
   type        = string
 }
+
+# ==========================================
+# 6. LBバックエンドプール名定義
+# ==========================================
+variable "lb_backend_pool_name" {
+  description = "実機のLBバックエンドプール名"
+  type        = string
+}
