@@ -13,18 +13,18 @@ locals {
 # ==========================================
 # 0.5 既存リソースの動的取得 (Data Sources)
 # ==========================================
-# NICを作成するのと同じリソースグループ内からリソースを特定します
+# 画像で確認した通り「rg-web-dev」を指定して取得します
 data "azurerm_subnet" "existing" {
   name                 = "snet-web-${var.environment}"
   virtual_network_name = "vnet-web-${var.environment}"
-  # NIC作成場所（var.resource_group_name）から探すように修正
-  resource_group_name  = var.resource_group_name 
+  # NIC作成場所とは別に、ネットワークが存在するRG（mgmtなし）を明示
+  resource_group_name  = "rg-web-${var.environment}" 
 }
 
 data "azurerm_lb_backend_address_pool" "existing" {
   name            = "be-web-${var.environment}"
-  # ロードバランサーのID組み立てにも var.resource_group_name を使用
-  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
+  # ロードバランサーも mgmt なしのRGパスで指定
+  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
 }
 
 # ==========================================
@@ -33,15 +33,15 @@ data "azurerm_lb_backend_address_pool" "existing" {
 resource "azurerm_network_interface" "nic" {
   name                = "nic-${local.resource_prefix}"
   location            = var.location
+  # NIC自体は mgmt 側のRG（var.resource_group_name）に作成
   resource_group_name = var.resource_group_name
 
   ip_configuration {
     name                          = "internal"
-    # data ブロックで動的に取得した正確な ID を適用
     subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
-
+  
   tags = local.common_tags
 }
 
