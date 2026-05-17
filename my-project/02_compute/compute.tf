@@ -13,19 +13,18 @@ locals {
 # ==========================================
 # 0.5 既存リソースの動的取得 (Data Sources)
 # ==========================================
-# 別の層(01_network)で作成されたリソースの「最新のID」をAzureから直接取得します。
-# これにより、YAML側で長いIDを管理する必要がなくなります。
+# NICを作成するのと同じリソースグループ内からリソースを特定します
 data "azurerm_subnet" "existing" {
   name                 = "snet-web-${var.environment}"
   virtual_network_name = "vnet-web-${var.environment}"
-  # 01層で作成されたVNETが存在するリソースグループ名を指定
-  resource_group_name  = "rg-web-${var.environment}" 
+  # NIC作成場所（var.resource_group_name）から探すように修正
+  resource_group_name  = var.resource_group_name 
 }
 
 data "azurerm_lb_backend_address_pool" "existing" {
   name            = "be-web-${var.environment}"
-  # LBのパスも動的に解決。subscription_id は variables.tf に定義済みのものを使用
-  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
+  # ロードバランサーのID組み立てにも var.resource_group_name を使用
+  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
 }
 
 # ==========================================
@@ -38,7 +37,7 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # 【動的解決】data ソースから取得した正確な ID を使用
+    # data ブロックで動的に取得した正確な ID を適用
     subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
@@ -52,7 +51,7 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # 【動的解決】data ソースから取得した正確な ID を使用
+  # data ブロックで動的に取得した正確な ID を適用
   backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
 }
 
