@@ -11,6 +11,24 @@ locals {
 }
 
 # ==========================================
+# 0.5 既存リソースの動的取得 (Data Sources)
+# ==========================================
+# Azure上の実際の情報を直接取得します。
+# これにより、Workflow側で不正確なIDを組み立てる必要がなくなります。
+data "azurerm_subnet" "existing" {
+  name                 = "snet-web-${var.environment}"
+  virtual_network_name = "vnet-web-${var.environment}"
+  # ネットワークリソースが作成されている実際のリソースグループ名
+  resource_group_name  = "rg-web-${var.environment}" 
+}
+
+data "azurerm_lb_backend_address_pool" "existing" {
+  name            = "be-web-${var.environment}"
+  # ロードバランサーのパスも動的に解決
+  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
+}
+
+# ==========================================
 # 10. ネットワークインターフェース（NIC）の作成
 # ==========================================
 resource "azurerm_network_interface" "nic" {
@@ -20,9 +38,8 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # Workflowから渡されるサブネットIDを直接使用します
-    # ※修正：エラー解消のため、確実に var.subnet_id を参照
-    subnet_id                     = var.subnet_id
+    # var.subnet_id (推測値) ではなく data (実測値) を使用
+    subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
 
@@ -35,9 +52,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # Workflowから渡されるバックエンドプールIDを直接使用します
-  # ※修正：エラー解消のため、確実に var.lb_backend_pool_id を参照
-  backend_address_pool_id = var.lb_backend_pool_id
+  # var.lb_backend_pool_id (推測値) ではなく data (実測値) を使用
+  backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
 }
 
 # ==========================================
@@ -68,7 +84,6 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  # 起動スクリプトの読み込み
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
