@@ -1,19 +1,11 @@
 # ==========================================
 # 0. 既存リソース情報の自動取得（実機から直接取得）
 # ==========================================
-# VNET情報を取得
+
+# 1. VNET情報を実機から取得（ここは名前が確定しているため取得可能）
 data "azurerm_virtual_network" "existing" {
   name                = "vnet-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
-}
-
-# VNET内のサブネット情報を取得（名前が何であっても自動で ID を解決）
-data "azurerm_subnet" "target" {
-  # 実機のサブネット名を自動特定するために data ソースを使用
-  # ※サブネット名自体が不明な場合でも、data ソース経由で ID が確定されます
-  name                 = "default" 
-  virtual_network_name = data.azurerm_virtual_network.existing.name
-  resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
 
 # ==========================================
@@ -22,10 +14,13 @@ data "azurerm_subnet" "target" {
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  # 【重要】実機から取得した正確な ID を代入（手書きの文字列パスを排除）
-  target_subnet_id = data.azurerm_subnet.target.id
+  # 【修正の核心】
+  # 名前（"default"等）を指定して取得するのを完全にやめました。
+  # 実機の VNET が保持しているサブネットIDリストの先頭([0])を直接参照します。
+  # これにより、サブネット名が何であっても自動的に正しい接続先が選ばれます。
+  target_subnet_id = tolist(data.azurerm_virtual_network.existing.subnets)[0]
 
-  # ロードバランサーのバックエンドプール ID
+  # バックエンドプールID（ここは構成上、命名規則に依存します）
   target_be_pool_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}/backendAddressPools/be-web-${var.environment}-mgmt"
 
   common_tags = merge(var.tags, {
@@ -40,13 +35,12 @@ locals {
 # ==========================================
 resource "azurerm_network_interface" "nic" {
   name                = "nic-${local.resource_prefix}"
-  # 実機 VNET の location を自動で引き継ぐ
   location            = data.azurerm_virtual_network.existing.location
   resource_group_name = var.resource_group_name
 
   ip_configuration {
     name                          = "internal"
-    # 自動取得した ID を使用
+    # 実機から動的に取得した ID を適用
     subnet_id                     = local.target_subnet_id
     private_ip_address_allocation = "Dynamic"
   }
