@@ -13,18 +13,18 @@ locals {
 # ==========================================
 # 0.5 既存リソースの動的取得 (Data Sources)
 # ==========================================
-# Azure上の実際の情報を直接取得します。
-# これにより、Workflow側で不正確なIDを組み立てる必要がなくなります。
+# 別の層(01_network)で作成されたリソースの「最新のID」をAzureから直接取得します。
+# これにより、YAML側で長いIDを管理する必要がなくなります。
 data "azurerm_subnet" "existing" {
   name                 = "snet-web-${var.environment}"
   virtual_network_name = "vnet-web-${var.environment}"
-  # ネットワークリソースが作成されている実際のリソースグループ名
+  # 01層で作成されたVNETが存在するリソースグループ名を指定
   resource_group_name  = "rg-web-${var.environment}" 
 }
 
 data "azurerm_lb_backend_address_pool" "existing" {
   name            = "be-web-${var.environment}"
-  # ロードバランサーのパスも動的に解決
+  # LBのパスも動的に解決。subscription_id は variables.tf に定義済みのものを使用
   loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
 }
 
@@ -38,7 +38,7 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # var.subnet_id (推測値) ではなく data (実測値) を使用
+    # 【動的解決】data ソースから取得した正確な ID を使用
     subnet_id                     = data.azurerm_subnet.existing.id
     private_ip_address_allocation = "Dynamic"
   }
@@ -52,7 +52,7 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # var.lb_backend_pool_id (推測値) ではなく data (実測値) を使用
+  # 【動的解決】data ソースから取得した正確な ID を使用
   backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
 }
 
