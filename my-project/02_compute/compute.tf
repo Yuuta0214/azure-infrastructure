@@ -20,7 +20,8 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # 【重要】var.subnet_id ではなく data から取得したIDを使用
+    # Workflowから渡されるサブネットIDを直接使用します
+    # ※修正：エラー解消のため、確実に var.subnet_id を参照
     subnet_id                     = var.subnet_id
     private_ip_address_allocation = "Dynamic"
   }
@@ -34,7 +35,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  # 【重要】var.lb_backend_pool_id ではなく data から取得したIDを使用
+  # Workflowから渡されるバックエンドプールIDを直接使用します
+  # ※修正：エラー解消のため、確実に var.lb_backend_pool_id を参照
   backend_address_pool_id = var.lb_backend_pool_id
 }
 
@@ -66,6 +68,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
+  # 起動スクリプトの読み込み
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
