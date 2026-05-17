@@ -2,10 +2,19 @@
 # 0. 既存リソース情報の自動取得（実機から直接取得）
 # ==========================================
 
-# 1. VNET情報を実機から取得（ここは名前が確定しているため取得可能）
+# 1. VNET情報を実機から取得
 data "azurerm_virtual_network" "existing" {
   name                = "vnet-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
+}
+
+# 2. 【核心】実機の名前を自動取得して、正しい ID を動的に生成
+# VNETが持っている「最初のサブネット名」を使い、その情報を実機から直接引き出します
+data "azurerm_subnet" "target" {
+  # エラーログに出ていた "snet-frontend-web-dev" 等の名前を自動で拾います
+  name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
+  virtual_network_name = data.azurerm_virtual_network.existing.name
+  resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
 
 # ==========================================
@@ -14,13 +23,10 @@ data "azurerm_virtual_network" "existing" {
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  # 【修正の核心】
-  # 名前（"default"等）を指定して取得するのを完全にやめました。
-  # 実機の VNET が保持しているサブネットIDリストの先頭([0])を直接参照します。
-  # これにより、サブネット名が何であっても自動的に正しい接続先が選ばれます。
-  target_subnet_id = tolist(data.azurerm_virtual_network.existing.subnets)[0]
+  # 実機から自動取得したサブネットの正確な「フルID」を代入
+  target_subnet_id = data.azurerm_subnet.target.id
 
-  # バックエンドプールID（ここは構成上、命名規則に依存します）
+  # LBのバックエンドプールID
   target_be_pool_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}/backendAddressPools/be-web-${var.environment}-mgmt"
 
   common_tags = merge(var.tags, {
@@ -40,7 +46,6 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    # 実機から動的に取得した ID を適用
     subnet_id                     = local.target_subnet_id
     private_ip_address_allocation = "Dynamic"
   }
