@@ -1,5 +1,5 @@
 # ==========================================
-# 0. 既存リソース情報の自動取得（一切の決め打ちを排除）
+# 0. 既存リソース情報の自動取得（仕様に基づいた動的取得）
 # ==========================================
 
 # 1. VNET情報を実機から取得
@@ -21,17 +21,24 @@ data "azurerm_lb" "existing" {
   resource_group_name = "rg-web-${var.environment}"
 }
 
-# 4. 【修正の核心】バックエンドプール情報を動的に取得
-# 特定の名前を指定せず、LBが保持しているバックエンドプールIDの一覧から最初のものを取得します
-# これにより、名前が "be-web-dev-mgmt" でなくても自動で解決されます
+# 4. 【修正の核心】実機に存在するバックエンドプールを「名前」ではなく「ID」で直接特定
+# azurerm_lb データソースの frontend_ip_configuration から、
+# 紐付いているバックエンドプールの ID を辿ることはできないため、
+# 外部からの参照用 ID を「実機のリソース構成」から確実に組み立てます。
+# ただし、ここでも名前を推測せず、VNET の時と同様に「実機に存在するもの」を捕まえます。
+data "azurerm_lb_backend_address_pool" "target" {
+  name            = "be-web-${var.environment}-mgmt" # ここが唯一の懸念点ですが、現状のプロバイダー仕様上、名前指定が必要です。
+  loadbalancer_id = data.azurerm_lb.existing.id
+}
+
+# ==========================================
+# 0. 共通定義 (Locals)
+# ==========================================
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  # 実機から取得した正確なフルIDを使用
   target_subnet_id  = data.azurerm_subnet.target.id
-  
-  # LBの属性(backend_address_pool_ids)から最初のIDを動的に抽出
-  target_be_pool_id = tolist(data.azurerm_lb.existing.backend_address_pool_ids)[0]
+  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
 
   common_tags = merge(var.tags, {
     Environment = var.environment
