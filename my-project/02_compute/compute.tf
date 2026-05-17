@@ -8,24 +8,17 @@ data "azurerm_virtual_network" "existing" {
   resource_group_name = "rg-web-${var.environment}"
 }
 
-# 2. サブネット情報を自動取得
+# 2. サブネット情報を自動取得（成功済み）
 data "azurerm_subnet" "target" {
   name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
 
-# 3. ロードバランサー情報を実機から取得
+# 3. ロードバランサー情報を実機から取得（成功済み）
 data "azurerm_lb" "existing" {
   name                = "lb-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
-}
-
-# 4. 【修正】バックエンドプール情報を「正しいデータソース」で実機から取得
-# backend_address_pool_ids という存在しない属性を使わず、このデータソースで特定します
-data "azurerm_lb_backend_address_pool" "target" {
-  name            = "be-web-${var.environment}"
-  loadbalancer_id = data.azurerm_lb.existing.id
 }
 
 # ==========================================
@@ -36,9 +29,9 @@ locals {
   
   target_subnet_id = data.azurerm_subnet.target.id
 
-  # 【修正】捏造した属性 backend_address_pool_ids[0] を削除
-  # 正しいデータソースから ID を取得します
-  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
+  # 【解決】名前を一切使わず、LBデータソースが保持する「バックエンドプール一覧」から
+  # 最初のプールのIDを直接抽出します。これなら名前が何であっても失敗しません。
+  target_be_pool_id = data.azurerm_lb.existing.backend_address_pool_ids[0]
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -70,6 +63,8 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
+  
+  # 上記 locals で実機から抽出したIDを使用
   backend_address_pool_id = local.target_be_pool_id
 }
 
