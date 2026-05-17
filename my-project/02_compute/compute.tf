@@ -3,28 +3,21 @@
 # ==========================================
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
+  
+  # ネットワークが存在するRG名
+  network_rg      = "rg-web-${var.environment}"
+  
+  # エディタの赤表示（参照エラー）を解決するために再定義
   common_tags = merge(var.tags, {
     Environment = var.environment
     Project     = var.project_name
     ManagedBy   = "Terraform"
   })
-}
 
-# ==========================================
-# 0.5 既存リソースの動的取得 (Data Sources)
-# ==========================================
-
-# 1. サブネットの取得（画像から「default」と確定）
-data "azurerm_subnet" "existing" {
-  name                 = "default" # 画像に基づき修正
-  virtual_network_name = "vnet-web-${var.environment}"
-  resource_group_name  = "rg-web-${var.environment}" 
-}
-
-# 2. バックエンドプールの取得（画像から「be-web-dev-mgmt」と確定）
-data "azurerm_lb_backend_address_pool" "existing" {
-  name            = "be-web-${var.environment}-mgmt" # 画像に基づき修正
-  loadbalancer_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}"
+  # 名前検索（dataブロック）による失敗を回避するため、リソースIDを直接構築
+  # 画像から確定した「default」と「be-web-dev-mgmt」を埋め込み
+  target_subnet_id = "/subscriptions/${var.subscription_id}/resourceGroups/${local.network_rg}/providers/Microsoft.Network/virtualNetworks/vnet-web-${var.environment}/subnets/default"
+  target_be_pool_id = "/subscriptions/${var.subscription_id}/resourceGroups/${local.network_rg}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}/backendAddressPools/be-web-${var.environment}-mgmt"
 }
 
 # ==========================================
@@ -37,10 +30,10 @@ resource "azurerm_network_interface" "nic" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = data.azurerm_subnet.existing.id
+    subnet_id                     = local.target_subnet_id
     private_ip_address_allocation = "Dynamic"
   }
-  
+
   tags = local.common_tags
 }
 
@@ -50,7 +43,7 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  backend_address_pool_id = data.azurerm_lb_backend_address_pool.existing.id
+  backend_address_pool_id = local.target_be_pool_id
 }
 
 # ==========================================
@@ -81,6 +74,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
+  # スクリプトディレクトリがない場合のエラーを防ぐため、存在を確認してください
   custom_data = base64encode(templatefile("${path.module}/scripts/bootstrap.sh", {
     hostname       = "vm-${local.resource_prefix}"
     admin_username = var.admin_username
