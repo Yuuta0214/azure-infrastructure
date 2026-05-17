@@ -8,13 +8,23 @@ data "azurerm_virtual_network" "existing" {
   resource_group_name = "rg-web-${var.environment}"
 }
 
-# 2. 【核心】実機の名前を自動取得して、正しい ID を動的に生成
-# VNETが持っている「最初のサブネット名」を使い、その情報を実機から直接引き出します
+# 2. 実機のサブネット名を自動取得して、正しい ID を動的に生成
 data "azurerm_subnet" "target" {
-  # エラーログに出ていた "snet-frontend-web-dev" 等の名前を自動で拾います
   name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
+}
+
+# 3. ロードバランサーの情報を実機から取得
+data "azurerm_lb" "existing" {
+  name                = "lb-web-${var.environment}"
+  resource_group_name = "rg-web-${var.environment}"
+}
+
+# 4. バックエンドプールの情報を実機から取得
+data "azurerm_lb_backend_address_pool" "target" {
+  name            = "be-web-${var.environment}-mgmt" # ここが違う場合はエラーになるので、実機を確認してください
+  loadbalancer_id = data.azurerm_lb.existing.id
 }
 
 # ==========================================
@@ -23,11 +33,9 @@ data "azurerm_subnet" "target" {
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  # 実機から自動取得したサブネットの正確な「フルID」を代入
-  target_subnet_id = data.azurerm_subnet.target.id
-
-  # LBのバックエンドプールID
-  target_be_pool_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}/backendAddressPools/be-web-${var.environment}-mgmt"
+  # 実機から取得した正確なフルIDを使用
+  target_subnet_id  = data.azurerm_subnet.target.id
+  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
 
   common_tags = merge(var.tags, {
     Environment = var.environment
