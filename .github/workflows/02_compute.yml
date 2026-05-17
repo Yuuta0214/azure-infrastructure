@@ -29,7 +29,7 @@ jobs:
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       # 以下の2つを「名前」ではなく「フルパス」に！
-      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
     steps:
       - name: 5-1, Checkout Code
@@ -86,7 +86,7 @@ jobs:
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       # 以下の2つを「名前」ではなく「フルパス」に！
-      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+      TF_VAR_subnet_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/virtualNetworks/vnet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/subnets/snet-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_lb_backend_pool_id: "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}-mgmt/providers/Microsoft.Network/loadBalancers/lb-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}/backendAddressPools/be-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
 
     steps:
