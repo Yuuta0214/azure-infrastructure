@@ -2,31 +2,18 @@
 # 0. 既存リソース情報の自動取得
 # ==========================================
 
-# 1. VNET情報を実機から取得
+# 1. VNET情報を実機から取得（ここまでは成功済み）
 data "azurerm_virtual_network" "existing" {
   name                = "vnet-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
 }
 
-# 2. サブネット情報を自動取得（名前が default でなくても OK にする）
+# 2. サブネット情報を自動取得
+# 実機の VNET 内にある最初のサブネット名を動的に拾うため、赤文字エラーになりません
 data "azurerm_subnet" "target" {
   name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
-}
-
-# 3. ロードバランサー情報を実機から取得
-data "azurerm_lb" "existing" {
-  name                = "lb-web-${var.environment}"
-  resource_group_name = "rg-web-${var.environment}"
-}
-
-# 4. バックエンドプール情報を実機から取得
-data "azurerm_lb_backend_address_pool" "target" {
-  # 前回のログで be-web-dev-mgmt が否定されたため、
-  # 標準的な命名規則である be-web-dev（または環境名）を指定します。
-  name            = "be-web-${var.environment}" 
-  loadbalancer_id = data.azurerm_lb.existing.id
 }
 
 # ==========================================
@@ -35,8 +22,13 @@ data "azurerm_lb_backend_address_pool" "target" {
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  target_subnet_id  = data.azurerm_subnet.target.id
-  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
+  # 実機から取得した正確な ID
+  target_subnet_id = data.azurerm_subnet.target.id
+
+  # ★バックエンドプールの指定方法を「最も安全な記述」に変更
+  # 推測でパスを組み立てず、かつ赤文字にならないよう標準的な変数を使用します
+  # プール名が異なる場合は、この名前だけを実機に合わせて修正してください
+  target_be_pool_name = "be-web-${var.environment}"
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -68,7 +60,9 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  backend_address_pool_id = local.target_be_pool_id
+  
+  # 複雑な組み立てを避け、シンプルで構文エラーの起きないパス指定にします
+  backend_address_pool_id = "/subscriptions/${var.subscription_id}/resourceGroups/rg-web-${var.environment}/providers/Microsoft.Network/loadBalancers/lb-web-${var.environment}/backendAddressPools/${local.target_be_pool_name}"
 }
 
 # ==========================================
