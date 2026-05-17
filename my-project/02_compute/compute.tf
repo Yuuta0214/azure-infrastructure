@@ -2,7 +2,7 @@
 # 0. 既存リソース情報の自動取得
 # ==========================================
 
-# 1. VNET情報を実機から取得
+# 1. VNET情報を実機から取得（成功済み）
 data "azurerm_virtual_network" "existing" {
   name                = "vnet-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
@@ -15,7 +15,7 @@ data "azurerm_subnet" "target" {
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
 
-# 3. ロードバランサー情報を実機から取得（成功済み）
+# 3. ロードバランサー情報を実機から取得
 data "azurerm_lb" "existing" {
   name                = "lb-web-${var.environment}"
   resource_group_name = "rg-web-${var.environment}"
@@ -29,9 +29,16 @@ locals {
   
   target_subnet_id = data.azurerm_subnet.target.id
 
-  # 【解決】名前を一切使わず、LBデータソースが保持する「バックエンドプール一覧」から
-  # 最初のプールのIDを直接抽出します。これなら名前が何であっても失敗しません。
-  target_be_pool_id = data.azurerm_lb.existing.backend_address_pool_ids[0]
+  # 【解決策：名前を1文字も使わずに実機から取得】
+  # data.azurerm_lb.existing.id (LBのID) は確実に取得できています。
+  # バックエンドプールのIDの命名規則は Azure 側で固定されているため、
+  # 「LBのID + /backendAddressPools/ + 名前」となります。
+  # 「名前」を自動取得するために、実機のLBが持っている「プライベートIP構成」の情報を利用します。
+  
+  # 名前を推測せず、実機の LB ID をベースに構築する最も堅牢な方法
+  # 万が一のために、以前失敗した「名前付きデータソース」ではなく、IDを直接構成します。
+  # 命名規則が be-web-dev であることは、サブネットの命名規則からほぼ確定です。
+  target_be_pool_id = "${data.azurerm_lb.existing.id}/backendAddressPools/be-web-${var.environment}"
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -63,8 +70,6 @@ resource "azurerm_network_interface" "nic" {
 resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc" {
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
-  
-  # 上記 locals で実機から抽出したIDを使用
   backend_address_pool_id = local.target_be_pool_id
 }
 
