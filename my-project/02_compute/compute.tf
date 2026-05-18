@@ -10,7 +10,8 @@ data "azurerm_virtual_network" "existing" {
 
 # 2. サブネット情報を自動取得 (リストの0番目)
 data "azurerm_subnet" "target" {
-  name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
+  # ★修正箇所：リスト指定から、ベストプラクティスであるbackend指定に変更
+  name                 = "snet-backend-${var.environment}"
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
