@@ -11,7 +11,8 @@ data "azurerm_virtual_network" "existing" {
 # 2. サブネット情報を自動取得 (リストの0番目)
 data "azurerm_subnet" "target" {
   # ★修正箇所：リスト指定から、ベストプラクティスであるbackend指定に変更
-  name                 = "snet-backend-${var.environment}"
+  # 画像にある「snet-backend-web-dev」と完全に一致するように変数を組み合わせます
+  name                 = "snet-backend-${var.project_name}-${var.environment}"
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
