@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Web Service - Connectivity Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .card {
+            background: #fff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        .status-badge {
+            display: inline-block;
+            background-color: #28a745;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }
+        h1 { color: #0078d4; margin-bottom: 10px; }
+        .details {
+            text-align: left;
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 5px solid #0078d4;
+            margin-top: 30px;
+        }
+        code { background: #e9ecef; padding: 2px 5px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="status-badge">Nginx Container: Online</div>
+        <h1>Hello from Azure VM!</h1>
+        <p>Ansibleによる自動構築とDocker Composeによる3層デプロイが成功しました。</p>
+
+        <div class="details">
+            <strong>デプロイ環境の詳細:</strong>
+            <ul>
+                <li><strong>Web層:</strong> Nginx (Reverse Proxy) [cite: 6]</li>
+                <li><strong>App層:</strong> Python Application [cite: 5, 6]</li>
+                <li><strong>DB層:</strong> MySQL 8.0 [cite: 3]</li>
+            </ul>
+            <p><small>※このページは <code>nginx-web</code> コンテナから配信されています [cite: 6]。</small></p>
+        </div>
+        
+        <p style="margin-top: 40px; color: #888;">
+            <small>Managed by Terraform & Ansible</small>
+        </p>
+    </div>
+</body>
+</html>
