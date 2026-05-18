@@ -118,3 +118,19 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   tags = local.common_tags
 }
+
+# ==========================================
+# 13. 外部連携用の情報参照 (Data Sources & Outputs) ※追加
+# ==========================================
+
+# ネットワーク層（01_network）で作成済みのパブリックIP情報を「参照」のみ行う
+# 既存のリソースを壊すことはありません
+data "azurerm_public_ip" "lb_pip" {
+  name                = "pip-lb-web-${var.environment}"
+  resource_group_name = var.resource_group_name
+}
+
+# 参照した最新のIPアドレスをAnsible(GitHub Actions)へ渡すための定義
+output "public_ip_address" {
+  value = data.azurerm_public_ip.lb_pip.ip_address
+}
