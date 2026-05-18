@@ -85,6 +85,17 @@ resource "azurerm_lb_rule" "lb_rule" {
   probe_id                       = azurerm_lb_probe.lb_probe.id
 }
 
+# 追加：# 負荷分散ルール (TCP/22)
+resource "azurerm_lb_rule" "lb_rule_ssh" {
+  loadbalancer_id                = azurerm_lb.lb.id
+  name                           = "LBRule-SSH-22"
+  protocol                       = "Tcp"
+  frontend_port                  = 22
+  backend_port                   = 22
+  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
+}
+
 # ==========================================
 # 8. ネットワークセキュリティグループ (NSG) の作成
 # ==========================================

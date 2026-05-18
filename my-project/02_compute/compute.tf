@@ -10,7 +10,9 @@ data "azurerm_virtual_network" "existing" {
 
 # 2. サブネット情報を自動取得 (リストの0番目)
 data "azurerm_subnet" "target" {
-  name                 = tolist(data.azurerm_virtual_network.existing.subnets)[0]
+  # ★修正箇所：リスト指定から、ベストプラクティスであるbackend指定に変更
+  # 画像にある「snet-backend-web-dev」と完全に一致するように変数を組み合わせます
+  name                 = "snet-backend-${var.project_name}-${var.environment}"
   virtual_network_name = data.azurerm_virtual_network.existing.name
   resource_group_name  = data.azurerm_virtual_network.existing.resource_group_name
 }
@@ -84,8 +86,15 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                = var.vm_size
   admin_username      = var.admin_username
 
+  # パスワード認証を有効にしたままにする（既存設定を維持）
   disable_password_authentication = false
   admin_password                  = var.admin_password
+
+  # 【追加箇所】公開鍵を登録するブロックを追加
+  admin_ssh_key {
+    username   = var.admin_username
+    public_key = var.ssh_public_key # variables.tf で定義した変数を使用
+  }
 
   network_interface_ids = [azurerm_network_interface.nic.id]
 
