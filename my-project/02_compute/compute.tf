@@ -84,8 +84,15 @@ resource "azurerm_linux_virtual_machine" "vm" {
   size                = var.vm_size
   admin_username      = var.admin_username
 
+  # パスワード認証を有効にしたままにする（既存設定を維持）
   disable_password_authentication = false
   admin_password                  = var.admin_password
+
+  # 【追加箇所】公開鍵を登録するブロックを追加
+  admin_ssh_key {
+    username   = var.admin_username
+    public_key = var.ssh_public_key # variables.tf で定義した変数を使用
+  }
 
   network_interface_ids = [azurerm_network_interface.nic.id]
 

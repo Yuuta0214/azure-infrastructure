@@ -23,9 +23,10 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      # 02_compute.yml の env セクションを以下に差し替え
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      # ↓ 【追加】SSH公開鍵をSecretsからTerraform変数へ注入
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
@@ -78,9 +79,10 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-      # 02_compute.yml の env セクションを以下に差し替え
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
+      # ↓ 【追加】Apply時にも同様に注入
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 

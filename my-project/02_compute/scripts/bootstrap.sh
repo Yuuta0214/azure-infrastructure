@@ -10,6 +10,19 @@ exec > >(tee -a /var/log/user-data.log | logger -t user-data) 2>&1
 
 echo "*** [START] Bootstrap: $(date) ***"
 
+# --- [追加箇所] SSH鍵のプロビジョニング待機 ---
+# Azure(Cloud-init)が鍵を書き込むまで最大60秒待機します
+echo "Waiting for SSH keys to be provisioned..."
+for i in {1..12}; do
+    if [ -f "/home/${admin_username}/.ssh/authorized_keys" ]; then
+        echo "SSH keys confirmed."
+        break
+    fi
+    echo "Still waiting for SSH keys... ($i/12)"
+    sleep 5
+done
+# ----------------------------------------------
+
 # 1. aptロックの安全な待機
 # 他のプロセスがaptを使用中の場合、最大300秒待機するように設定
 echo "Waiting for apt locks to be released..."

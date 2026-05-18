@@ -25,7 +25,7 @@ variable "project_name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9-]+$+", var.project_name))
+    condition     = can(regex("^[a-z0-9-]+$", var.project_name))
     error_message = "プロジェクト名は英小文字、数字、ハイフンのみ使用可能です。"
   }
 }
@@ -62,6 +62,12 @@ variable "admin_password" {
   description = "VMの管理者パスワード"
   type        = string
   sensitive   = true # ログ出力防止
+}
+
+# 【追加箇所】GitHub Secrets (SSH_PUBLIC_KEY) を受け取るための定義
+variable "ssh_public_key" {
+  description = "SSH公開鍵の中身 (GitHub Secretsから注入)"
+  type        = string
 }
 
 # ==========================================
