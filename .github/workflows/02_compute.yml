@@ -117,6 +117,33 @@ jobs:
             -backend-config="key=compute.tfstate"
         working-directory: ./my-project/02_compute
 
+      # 6-6, Terraform Apply (compute層のVM作成)
       - name: 6-6, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
+
+      # 6-7, Ansible用の接続先IPを固定値でセット
+      # network層の出力を参照しに行かず、ここで完結させます
+      - name: 6-7, Get Public IP
+        id: get_ip
+        run: |
+          # compute層の実行結果（data source経由）から最新IPを取得
+          PUBLIC_IP=$(terraform output -raw public_ip_address)
+          echo "target_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+        working-directory: ./my-project/02_compute
+
+      # 6-8, SSH秘密鍵のセットアップ
+      - name: 6-8, Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      # 6-9, Ansibleの実行
+      - name: 6-9, Run Ansible Playbook
+        run: |
+          ansible-playbook -i inventory.ini site.yml \
+            --extra-vars "target_ip=${{ steps.get_ip.outputs.target_ip }} admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }}"
+        working-directory: ./my-project/Ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'False'

@@ -89,6 +89,26 @@
         mode: '0644'
       become: yes
 
+    # --- [ここから追加] Nginx 設定ファイルの転送 ---
+    - name: "Copy nginx.conf"
+      ansible.builtin.copy:
+        src: "./nginx.conf"
+        dest: "{{ project_root }}/nginx.conf"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    # --- [ここから追加] HTMLディレクトリの同期 ---
+    - name: "Copy html directory"
+      ansible.builtin.copy:
+        src: "./html"
+        dest: "{{ project_root }}/"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      become: yes
+
     # ------------------------------------------
     # 4. コンテナ起動フェーズ
     # ------------------------------------------
