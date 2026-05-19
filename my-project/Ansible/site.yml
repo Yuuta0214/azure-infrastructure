@@ -10,13 +10,6 @@
     docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
     docker_repo_url: "https://download.docker.com/linux/debian"
 
-    # --- 【重要】テンプレートで参照されているが欠落していたDB関連の変数 ---
-    # 値を直接書くのではなく、実行時の引数(--extra-vars)から安全に受け取るよう定義
-    mysql_root_password: "{{ mysql_root_password }}"
-    mysql_db_name: "{{ mysql_db_name }}"
-    mysql_user: "{{ mysql_user }}"
-    mysql_password: "{{ mysql_password }}"
-
   tasks:
     # ------------------------------------------
     # 1. 同期・準備フェーズ
