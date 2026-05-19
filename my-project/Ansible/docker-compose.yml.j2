@@ -21,8 +21,8 @@ services:
       - backend-nw
     # DB起動完了を正確に判定するためのヘルスチェック
     healthcheck:
-      # 【修正】変数と文字の連結エラーを防ぐため、ダブルクォートで囲みます
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "{{ mysql_user }}", "-p{{ mysql_password }}"]
+      # 【修正】連結演算子「~」を使い、文字列と変数を確実に分離してエラーを回避します
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "{{ mysql_user }}", "{{ '-p' ~ mysql_password }}"]
       interval: 10s
       timeout: 5s
       retries: 5
