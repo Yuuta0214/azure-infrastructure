@@ -10,6 +10,12 @@
     docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
     docker_repo_url: "https://download.docker.com/linux/debian"
 
+    # --- 外部の実行引数(--extra-vars)から安全に値を受け取るための変数定義 ---
+    mysql_root_password: "{{ mysql_root_password }}"
+    mysql_db_name: "{{ mysql_db_name }}"
+    mysql_user: "{{ mysql_user }}"
+    mysql_password: "{{ mysql_password }}"
+
   tasks:
     # ------------------------------------------
     # 1. 同期・準備フェーズ
@@ -44,7 +50,11 @@
 
     - name: "Add Docker repository to Apt sources"
       ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        repo: >
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/debian
+          {{ ansible_distribution_release }}
+          stable
         state: present
         filename: docker
       become: yes
