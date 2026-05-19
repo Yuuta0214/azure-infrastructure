@@ -21,7 +21,7 @@ services:
       - backend-nw
     # DB起動完了を正確に判定するためのヘルスチェック
     healthcheck:
-      # 【修正】引数をリストで明示的に分割し、Jinja2変数の展開ミスを防止
+      # 【修正】変数と文字の連結エラーを防ぐため、ダブルクォートで囲みます
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "{{ mysql_user }}", "-p{{ mysql_password }}"]
       interval: 10s
       timeout: 5s
