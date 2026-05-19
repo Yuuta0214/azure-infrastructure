@@ -37,14 +37,14 @@
 
     - name: "Add Docker's official GPG key"
       ansible.builtin.get_url:
-        url: "{{ docker_repo_url }}/gpg"
-        dest: "{{ docker_gpg_path }}"
+        url: "https://download.docker.com/linux/debian/gpg"
+        dest: "/etc/apt/keyrings/docker.asc"  # 拡張子を .asc に変更
         mode: '0644'
       become: yes
 
     - name: "Add Docker repository to Apt sources"
       ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by={{ docker_gpg_path }}] {{ docker_repo_url }} {{ ansible_distribution_release }} stable"
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
         state: present
         filename: docker
       become: yes
