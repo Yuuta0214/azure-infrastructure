@@ -1,0 +1,197 @@
+- name: "Component-based Deployment of Web Service"
+  hosts: all
+  gather_facts: no
+
+  vars:
+    admin_user: "{{ admin_username }}"
+    project_root: "/home/{{ admin_username }}/app"
+    docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
+    docker_repo_url: "https://download.docker.com/linux/debian"
+
+    mysql_root_password: "{{ mysql_root_password }}"
+    mysql_db_name: "{{ mysql_db_name }}"
+    mysql_user: "{{ mysql_user }}"
+    mysql_password: "{{ mysql_password }}"
+
+  tasks:
+    # ------------------------------------------
+    # 1. 同期・準備フェーズ (既存 site.yml から完全継承)
+    # ------------------------------------------
+    - name: "Wait for infrastructure bootstrap to complete"
+      ansible.builtin.wait_for:
+        path: /var/tmp/bootstrap_complete
+        state: present
+        timeout: 600
+      become: no
+
+    - name: "Gather facts after bootstrap confirmation"
+      ansible.builtin.setup:
+      become: yes
+
+    # ------------------------------------------
+    # 2. Docker インストールフェーズ (既存 site.yml から完全継承)
+    # ------------------------------------------
+    - name: "Create directory for Docker GPG key"
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: "Add Docker's official GPG key"
+      ansible.builtin.get_url:
+        url: "https://download.download.docker.com/linux/debian/gpg"
+        dest: "/etc/apt/keyrings/docker.asc"
+        mode: '0644'
+      become: yes
+
+    - name: "Add Docker repository to Apt sources"
+      ansible.builtin.apt_repository:
+        repo: >
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/debian
+          {{ ansible_distribution_release }}
+          stable
+        state: present
+        filename: docker
+      become: yes
+
+    - name: "Install Docker Engine and Compose plugin"
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: "Ensure Docker service is started and enabled"
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+      become: yes
+
+    # ------------------------------------------
+    # 3. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
+    # ------------------------------------------
+    - name: "Create component directories on remote VM"
+      ansible.builtin.file:
+        path: "{{ project_root }}/components/{{ item }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      become: yes
+      loop:
+        - db
+        - app
+        - web
+
+    - name: "Copy nginx.conf to project root"
+      ansible.builtin.copy:
+        src: "./nginx.conf"
+        dest: "{{ project_root }}/nginx.conf"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    - name: "Copy html directory to project root"
+      ansible.builtin.copy:
+        src: "./html"
+        dest: "{{ project_root }}/"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      become: yes
+
+    # ------------------------------------------
+    # 4. DBコンテナ配置・起動フェーズ (最優先)
+    # ------------------------------------------
+    - name: "Deploy docker-compose-db.yml from template"
+      ansible.builtin.template:
+        src: "./components/db/docker-compose-db.yml.j2"
+        dest: "{{ project_root }}/components/db/docker-compose.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    - name: "Run docker compose up for DB"
+      ansible.builtin.command:
+        cmd: "docker compose up -d"
+        chdir: "{{ project_root }}/components/db"
+      become: yes
+
+    # ------------------------------------------
+    # 5. DBヘルスチェック監視フェーズ (順序制御の実体)
+    # ------------------------------------------
+    - name: "Wait for DB container to become healthy"
+      ansible.builtin.command:
+        cmd: "docker inspect --format='({{.State.Health.Status}})' mysql-db"
+      register: db_health
+      until: db_health.stdout == "(healthy)"
+      retries: 12
+      delay: 5
+      become: yes
+      changed_when: false
+
+    # ------------------------------------------
+    # 6. App・Webコンテナ配置・起動フェーズ (DB正常確認後に実行)
+    # ------------------------------------------
+    - name: "Create app source directory on remote VM"
+      ansible.builtin.file:
+        path: "{{ project_root }}/components/app/app"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      become: yes
+
+    - name: "Deploy docker-compose-app.yml from template"
+      ansible.builtin.template:
+        src: "./components/app/docker-compose-app.yml.j2"
+        dest: "{{ project_root }}/components/app/docker-compose.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    - name: "Deploy docker-compose-web.yml from template"
+      ansible.builtin.template:
+        src: "./components/web/docker-compose-web.yml.j2"
+        dest: "{{ project_root }}/components/web/docker-compose.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      become: yes
+
+    - name: "Run docker compose up for App"
+      ansible.builtin.command:
+        cmd: "docker compose up -d"
+        chdir: "{{ project_root }}/components/app"
+      become: yes
+
+    - name: "Run docker compose up for Web"
+      ansible.builtin.command:
+        cmd: "docker compose up -d"
+        chdir: "{{ project_root }}/components/web"
+      become: yes
+
+    # ------------------------------------------
+    # 7. 最終デプロイ検証フェーズ
+    # ------------------------------------------
+    - name: "Verify all running components"
+      ansible.builtin.command:
+        cmd: "docker ps"
+      become: yes
+      register: final_status
+      changed_when: false
+
+    - name: "Display running containers"
+      ansible.builtin.debug:
+        var: final_status.stdout_lines

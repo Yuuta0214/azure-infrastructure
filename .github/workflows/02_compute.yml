@@ -144,11 +144,11 @@ jobs:
       # かつansible.cfgの設定を自動的に継承して実行します。
       - name: 6-9, Run Ansible Playbook
         run: |
-          ansible-playbook -i inventory.ini site.yml \
+          ansible-playbook -i inventory.ini deploy-components.yml \
             --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
-                          mysql_root_password=rootpassword \
-                          mysql_db_name=web_db \
-                          mysql_user=dbuser \
-                          mysql_password=mypassword"
+                          mysql_root_password=${{ secrets.MYSQL_ROOT_PASSWORD }} \
+                          mysql_db_name=${{ secrets.MYSQL_DB_NAME }} \
+                          mysql_user=${{ secrets.MYSQL_USER }} \
+                          mysql_password=${{ secrets.MYSQL_PASSWORD }}"
         working-directory: ./my-project/Ansible

@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  {# ------------------------------------------ -#}
+  {# 3. Web層: Nginx (リバースプロキシ)          -#}
+  {# ------------------------------------------ -#}
+  web:
+    image: nginx:stable-alpine
+    container_name: nginx-web
+    restart: unless-stopped
+    {# ホスト(VM)の 80 ポートへのアクセスを、コンテナの 80 ポートへ転送 -#}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      {# 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります -#}
+      {# :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止 -#}
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html:/usr/share/nginx/html:ro
+    networks:
+      - frontend-nw
+
+{# ========================================== -#}
+{# ネットワーク定義                           -#}
+{# ========================================== -#}
+networks:
+  {# 外部（ALB）からのトラフィックを受けるためのブリッジネットワーク -#}
+  frontend-nw:
+    driver: bridge
