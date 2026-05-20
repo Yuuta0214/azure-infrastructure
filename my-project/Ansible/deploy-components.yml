@@ -8,10 +8,11 @@
     docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
     docker_repo_url: "https://download.docker.com/linux/debian"
 
-    mysql_root_password: "{{ mysql_root_password }}"
-    mysql_db_name: "{{ mysql_db_name }}"
-    mysql_user: "{{ mysql_user }}"
-    mysql_password: "{{ mysql_password }}"
+    # Actionsから渡された値が空文字の場合でも、正常な文字列を強制注入
+    mysql_root_password: "{{ mysql_root_password if mysql_root_password | length > 0 else 'root' }}"
+    mysql_db_name: "{{ mysql_db_name if mysql_db_name | length > 0 else 'webdb' }}"
+    mysql_user: "{{ mysql_user if mysql_user | length > 0 else 'webuser' }}"
+    mysql_password: "{{ mysql_password if mysql_password | length > 0 else 'webpass' }}"
 
   tasks:
     # ------------------------------------------
@@ -135,7 +136,7 @@
         cmd: "{% raw %}docker inspect --format='({{.State.Health.Status}})' mysql-db{% endraw %}"
       register: db_health
       until: db_health.stdout == "(healthy)"
-      retries: 12
+      retries: 24
       delay: 5
       become: yes
       changed_when: false
