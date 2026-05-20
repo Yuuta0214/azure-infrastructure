@@ -147,8 +147,8 @@ jobs:
           ansible-playbook -i inventory.ini deploy-components.yml \
             --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
-                          mysql_root_password=${{ secrets.MYSQL_ROOT_PASSWORD }} \
-                          mysql_db_name=${{ secrets.MYSQL_DB_NAME }} \
-                          mysql_user=${{ secrets.MYSQL_USER }} \
-                          mysql_password=${{ secrets.MYSQL_PASSWORD }}"
+                          mysql_root_password=rootpassword \
+                          mysql_db_name=web_db \
+                          mysql_user=dbuser \
+                          mysql_password=mypassword"
         working-directory: ./my-project/Ansible

@@ -9,6 +9,7 @@ services:
     container_name: mysql-db
     restart: unless-stopped
     environment:
+      {# Ansible の変数({{ ... }})を使用して、デプロイ時にセキュアに値を注入 -#}
       MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
       MYSQL_DATABASE: "{{ mysql_db_name }}"
       MYSQL_USER: "{{ mysql_user }}"
@@ -20,7 +21,7 @@ services:
       - backend-nw
     {# DB起動完了を正確に判定するためのヘルスチェック -#}
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -u root -p{{ mysql_root_password }}"]
       interval: 5s
       timeout: 5s
       retries: 10

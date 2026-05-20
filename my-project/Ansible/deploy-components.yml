@@ -3,16 +3,18 @@
   gather_facts: no
 
   vars:
+    # Terraformから渡される admin_username を使用
     admin_user: "{{ admin_username }}"
     project_root: "/home/{{ admin_username }}/app"
+    # Docker公式リポジトリ設定用
     docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
     docker_repo_url: "https://download.docker.com/linux/debian"
 
-    # Actionsから渡された値が空文字の場合でも、正常な文字列を強制注入
-    mysql_root_password: "{{ mysql_root_password if mysql_root_password | length > 0 else 'root' }}"
-    mysql_db_name: "{{ mysql_db_name if mysql_db_name | length > 0 else 'webdb' }}"
-    mysql_user: "{{ mysql_user if mysql_user | length > 0 else 'webuser' }}"
-    mysql_password: "{{ mysql_password if mysql_password | length > 0 else 'webpass' }}"
+    # --- 外部の実行引数(--extra-vars)から安全に値を受け取るための変数定義（完全復元） ---
+    mysql_root_password: "{{ mysql_root_password }}"
+    mysql_db_name: "{{ mysql_db_name }}"
+    mysql_user: "{{ mysql_user }}"
+    mysql_password: "{{ mysql_password }}"
 
   tasks:
     # ------------------------------------------
@@ -23,7 +25,7 @@
         path: /var/tmp/bootstrap_complete
         state: present
         timeout: 600
-      become: no
+      become: no  # bootstrap.shの完了を待つだけなのでsudo不要
 
     - name: "Gather facts after bootstrap confirmation"
       ansible.builtin.setup:
