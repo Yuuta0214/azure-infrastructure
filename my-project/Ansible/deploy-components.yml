@@ -136,7 +136,7 @@
         cmd: "{% raw %}docker inspect --format='({{.State.Health.Status}})' mysql-db{% endraw %}"
       register: db_health
       until: db_health.stdout == "(healthy)"
-      retries: 24
+      retries: 12
       delay: 5
       become: yes
       changed_when: false
