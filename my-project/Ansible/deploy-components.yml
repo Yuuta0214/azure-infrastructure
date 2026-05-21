@@ -97,7 +97,7 @@
     - name: "Copy nginx.conf to project root"
       ansible.builtin.copy:
         src: "./nginx.conf"
-        dest: "{{ project_root }}/nginx.conf"
+        dest: "{{ project_root }}/components/web/nginx.conf"  # 👈 コピー先を components/web/ 配下に変更
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
@@ -106,12 +106,12 @@
     - name: "Copy html directory to project root"
       ansible.builtin.copy:
         src: "./html"
-        dest: "{{ project_root }}/"
+        dest: "{{ project_root }}/components/web/"            # 👈 コピー先を components/web/ 配下に変更（末尾の「git」は完全削除）
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0755'
       become: yes
-      
+
     # ------------------------------------------
     # 【確実な解消対応】共通ネットワークの事前確保フェーズ
     # 各コンテナが外部参照（external）するネットワークをコンテナ起動前に物理的に生成します
