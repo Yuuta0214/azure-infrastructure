@@ -25,7 +25,7 @@ services:
 {# 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります -#}
 {# :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止 -#}
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx.conf.d/default.conf:ro
       - ./html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
