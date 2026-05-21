@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-{# ------------------------------------------ -#}
-{# 1. DB層: MySQL (データの永続化と隔離)      -#}
-{# ------------------------------------------ -#}
+  {# ------------------------------------------ -#}
+  {# 1. DB層: MySQL (データの永続化と隔離)      -#}
+  {# ------------------------------------------ -#}
   db:
     image: mysql:8.0
     container_name: mysql-db
@@ -19,11 +19,11 @@ services:
       MYSQL_USER: "{{ mysql_user }}"
       MYSQL_PASSWORD: "{{ mysql_password }}"
     volumes:
- {# ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント -#}
+      # ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント
       - db_data:/var/lib/mysql
     networks:
       - backend-nw
- {# DB起動完了を正確に判定するためのヘルスチェック -#}
+    # DB起動完了を正確に判定するためのヘルスチェック
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -u root -p{{ mysql_root_password }}"]
       interval: 5s
@@ -43,6 +43,6 @@ networks:
 {# ボリューム定義 (データの永続化)            -#}
 {# ========================================== -#}
 volumes:
-{# MySQL のデータを VM が再起動・コンテナ破棄されても保持するための領域 -#}
+  # MySQL のデータを VM が再起動・コンテナ破棄されても保持するための領域
   db_data:
     driver: local
