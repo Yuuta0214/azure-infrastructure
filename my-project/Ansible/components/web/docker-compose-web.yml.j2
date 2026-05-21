@@ -8,8 +8,7 @@ services:
     image: nginx:stable-alpine
     container_name: nginx-web
     restart: unless-stopped
-    # 権限とリソース管理
-    user: "101:101" # nginxユーザー標準UID/GID
+    user: "101:101"
     deploy:
       resources:
         limits:

@@ -8,14 +8,11 @@ services:
     image: python:3.11-slim
     container_name: python-app
     restart: unless-stopped
-    # プロセス権限の制限
     user: "1000:1000"
-    # リソース制限（暴走防止）
     deploy:
       resources:
         limits:
           memory: 512M
-    # ログ管理（ディスク圧迫防止）
     logging:
       driver: "json-file"
       options:
@@ -35,13 +32,12 @@ services:
       - backend-nw
 
 {# ========================================== -#}
-{# ネットワーク定義                            -#}
+{# ネットワーク定義                           -#}
 {# ========================================== -#}
 networks:
 {# Webコンテナ側で作成される外部ネットワークへの相乗り -#}
   frontend-nw:
     external: true
-
 {# DBコンテナ側で作成される内部ネットワークへの相乗り -#}
   backend-nw:
     external: true
