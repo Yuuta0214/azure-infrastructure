@@ -18,7 +18,7 @@
 
   tasks:
     # ------------------------------------------
-    # 1.5. OS基本設定フェーズ (NTP, Locale, Update)
+    # 0. OS基本設定フェーズ (NTP, Locale, Update)
     # ------------------------------------------
     - name: "Update all packages to latest version"
       ansible.builtin.apt:
@@ -112,29 +112,17 @@
       become: yes
 
     # ------------------------------------------
-    # 2.5. ホスト Nginx インストール・設定フェーズ
+    # 2.2. ポート競合自動回避フェーズ
     # ------------------------------------------
-    - name: "Install Nginx on Host"
-      ansible.builtin.apt:
-        name: nginx
-        state: present
-        update_cache: yes
+    - name: "Stop and remove all existing containers to free up port 80"
+      ansible.builtin.shell: |
+        # コンテナIDを取得して停止・削除
+        containers=$(docker ps -q)
+        if [ -n "$containers" ]; then
+          docker rm -f $containers
+        fi
       become: yes
-
-    - name: "Configure Nginx as Reverse Proxy"
-      ansible.builtin.template:
-        src: "./nginx-host.conf.j2"
-        dest: "/etc/nginx/sites-available/default"
-        mode: '0644'
-      become: yes
-      notify: Restart Nginx
-
-    - name: "Ensure Nginx is started and enabled"
-      ansible.builtin.systemd:
-        name: nginx
-        state: started
-        enabled: yes
-      become: yes
+      changed_when: false # 常に実行して問題ないため
 
     # ------------------------------------------
     # 3. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
@@ -172,7 +160,6 @@
 
     # ------------------------------------------
     # 【確実な解消対応】共通ネットワークの事前確保フェーズ
-    # 各コンテナが外部参照（external）するネットワークをコンテナ起動前に物理的に生成します
     # ------------------------------------------
     - name: "Ensure shared docker networks exist"
       ansible.builtin.command:
@@ -210,7 +197,7 @@
       become: yes
 
     # ------------------------------------------
-    # 5. DBヘルスチェック監視フェーズ (構文衝突をエスケープにより完全解消)
+    # 5. DBヘルスチェック監視フェーズ
     # ------------------------------------------
     - name: "Wait for DB container to become healthy"
       ansible.builtin.command:
@@ -223,7 +210,7 @@
       changed_when: false
 
     # ------------------------------------------
-    # 6. App・Webコンテナ配置・起動フェーズ (DB正常確認後に実行)
+    # 6. App・Webコンテナ配置・起動フェーズ
     # ------------------------------------------
     - name: "Create app source directory on remote VM"
       ansible.builtin.file:
@@ -252,26 +239,49 @@
         mode: '0644'
       become: yes
 
-    # --- App用 ---
     - name: "Remove existing App container"
       ansible.builtin.shell: "docker rm -f python-app || true"
       become: yes
 
     - name: "Run docker compose up for App"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"  # ★同じプロジェクト名を指定
+        cmd: "docker compose -p myapp up -d"
         chdir: "{{ project_root }}/components/app"
       become: yes
 
-    # --- Web用 ---
     - name: "Remove existing Web container"
       ansible.builtin.shell: "docker rm -f nginx-web || true"
       become: yes
 
     - name: "Run docker compose up for Web"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"  # ★同じプロジェクト名を指定
+        cmd: "docker compose -p myapp up -d"
         chdir: "{{ project_root }}/components/web"
+      become: yes
+
+    # ------------------------------------------
+    # 2.5. ホスト Nginx インストール・設定フェーズ (★最後に実行)
+    # ------------------------------------------
+    - name: "Install Nginx on Host"
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: "Configure Nginx as Reverse Proxy"
+      ansible.builtin.template:
+        src: "./nginx-host.conf.j2"
+        dest: "/etc/nginx/sites-available/default"
+        mode: '0644'
+      become: yes
+      notify: Restart Nginx
+
+    - name: "Ensure Nginx is started and enabled"
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: yes
       become: yes
 
     # ------------------------------------------
@@ -288,7 +298,6 @@
       ansible.builtin.debug:
         var: final_status.stdout_lines
       
-  # handlers は tasks と同じ階層（インデントレベル）に配置します
   handlers:
     - name: Restart Nginx
       ansible.builtin.systemd:
