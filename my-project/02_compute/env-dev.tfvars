@@ -4,7 +4,6 @@
 # 01_network 側の定義および 02_compute.yml と整合
 location     = "japanwest"
 environment  = "dev"
-project_name = "web"
 
 # ==========================================
 # 2. コンピューティング定義 (VMスペック)
