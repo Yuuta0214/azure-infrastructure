@@ -141,9 +141,10 @@
         mode: '0644'
       become: yes
 
-    - name: "Remove existing DB container" # ★ここに追加
+    - name: "Remove existing DB container"
       ansible.builtin.command: "docker compose -p myapp down"
-      chdir: "{{ project_root }}/components/db"
+      args:                # ★ args: を使うのが正しい構文です
+        chdir: "{{ project_root }}/components/db"
       ignore_errors: yes
       become: yes
 
@@ -199,7 +200,8 @@
     # --- App用 ---
     - name: "Remove existing App container"
       ansible.builtin.command: "docker compose -p myapp down"
-      chdir: "{{ project_root }}/components/app"
+      args:
+        chdir: "{{ project_root }}/components/app"
       ignore_errors: yes
       become: yes
 
@@ -212,7 +214,8 @@
     # --- Web用 ---
     - name: "Remove existing Web container"
       ansible.builtin.command: "docker compose -p myapp down"
-      chdir: "{{ project_root }}/components/web"
+      args:
+        chdir: "{{ project_root }}/components/web"
       ignore_errors: yes
       become: yes
 
