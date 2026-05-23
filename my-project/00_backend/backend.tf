@@ -34,6 +34,10 @@ resource "azurerm_resource_group" "mgmt_rg" {
   name     = "rg-${local.mgmt_prefix}"
   location = local.config.region  # 修正: var.location から変更
   tags     = local.common_tags
+  # 既存リソースであることを明示（破壊防止）
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ==========================================
