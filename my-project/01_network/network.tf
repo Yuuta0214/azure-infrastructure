@@ -68,9 +68,17 @@ resource "azurerm_lb_backend_address_pool" "lb_backend_pool" {
 # ヘルスプローブ (ポート 8080 の監視)
 resource "azurerm_lb_probe" "lb_probe" {
   loadbalancer_id = azurerm_lb.lb.id
-  name            = "http-running-probe"
+  name            = "http-running-probe-8080"
   port            = 8080
   protocol        = "Tcp" # 8080ポートの疎通を確認
+}
+
+# 80用 ヘルスプローブを追加
+resource "azurerm_lb_probe" "lb_probe_80" {
+  loadbalancer_id = azurerm_lb.lb.id
+  name            = "http-running-probe-80"
+  port            = 80
+  protocol        = "Tcp"
 }
 
 # 負荷分散ルール (TCP/8080)
@@ -96,6 +104,18 @@ resource "azurerm_lb_rule" "lb_rule_ssh" {
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
 }
 
+# 80用 負荷分散ルールを追加
+resource "azurerm_lb_rule" "lb_rule_80" {
+  loadbalancer_id                = azurerm_lb.lb.id
+  name                           = "LBRule-HTTP-80"
+  protocol                       = "Tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
+  probe_id                       = azurerm_lb_probe.lb_probe_80.id
+}
+
 # ==========================================
 # 8. ネットワークセキュリティグループ (NSG) の作成
 # ==========================================
@@ -103,6 +123,19 @@ resource "azurerm_network_security_group" "nsg" {
   name                = "nsg-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  # インターネットからの HTTP (80) アクセスを許可
+  security_rule {
+    name                         = "AllowHTTP80Inbound"
+    priority                     = 95
+    direction                    = "Inbound"
+    access                       = "Allow"
+    protocol                     = "Tcp"
+    source_port_range            = "*"
+    destination_port_range       = "80"
+    source_address_prefix        = "Internet"
+    destination_address_prefix   = "*"
+  }
 
   # インターネットからの HTTP (8080) アクセスを許可
   security_rule {
@@ -115,6 +148,19 @@ resource "azurerm_network_security_group" "nsg" {
     destination_port_range     = "8080"
     source_address_prefix      = "Internet"
     destination_address_prefix = "*"
+  }
+
+  # Azure LB からの 80 ポートへのヘルスチェックを許可
+  security_rule {
+    name                         = "AllowLBHealthCheck80"
+    priority                     = 105
+    direction                    = "Inbound"
+    access                       = "Allow"
+    protocol                     = "Tcp"
+    source_port_range            = "*"
+    destination_port_range       = "80"
+    source_address_prefix        = "AzureLoadBalancer"
+    destination_address_prefix   = "*"
   }
 
   # Azure LB からのヘルスチェックを許可
