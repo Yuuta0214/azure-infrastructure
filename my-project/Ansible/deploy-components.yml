@@ -143,7 +143,7 @@
 
     - name: "Run docker compose up for DB"
       ansible.builtin.command:
-        cmd: "docker compose up -d"
+        cmd: "docker compose -p myapp up -d"  # ★プロジェクト名を指定
         chdir: "{{ project_root }}/components/db"
       become: yes
 
@@ -192,13 +192,13 @@
 
     - name: "Run docker compose up for App"
       ansible.builtin.command:
-        cmd: "docker compose up -d"
+        cmd: "docker compose -p myapp up -d"  # ★同じプロジェクト名を指定
         chdir: "{{ project_root }}/components/app"
       become: yes
 
     - name: "Run docker compose up for Web"
       ansible.builtin.command:
-        cmd: "docker compose up -d"
+        cmd: "docker compose -p myapp up -d"  # ★同じプロジェクト名を指定
         chdir: "{{ project_root }}/components/web"
       become: yes
 
