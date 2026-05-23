@@ -142,10 +142,7 @@
       become: yes
 
     - name: "Remove existing DB container"
-      ansible.builtin.command: "docker compose -p myapp down"
-      args:                # ★ args: を使うのが正しい構文です
-        chdir: "{{ project_root }}/components/db"
-      ignore_errors: yes
+      ansible.builtin.shell: "docker rm -f mysql-db || true"
       become: yes
 
     - name: "Run docker compose up for DB"
@@ -199,10 +196,7 @@
 
     # --- App用 ---
     - name: "Remove existing App container"
-      ansible.builtin.command: "docker compose -p myapp down"
-      args:
-        chdir: "{{ project_root }}/components/app"
-      ignore_errors: yes
+      ansible.builtin.shell: "docker rm -f python-app || true"
       become: yes
 
     - name: "Run docker compose up for App"
@@ -213,10 +207,7 @@
 
     # --- Web用 ---
     - name: "Remove existing Web container"
-      ansible.builtin.command: "docker compose -p myapp down"
-      args:
-        chdir: "{{ project_root }}/components/web"
-      ignore_errors: yes
+      ansible.builtin.shell: "docker rm -f nginx-web || true"
       become: yes
 
     - name: "Run docker compose up for Web"
