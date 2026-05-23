@@ -24,6 +24,8 @@ variable "environment" {
 variable "project_name" {
   description = "プロジェクトの基本名称" # 「01_network/main.tf」のLocals等で使用
   type        = string
+  # 【修正】デフォルト値を設定し、GitHub Actionsでの入力待ちを物理的に防ぎます
+  default     = "web"
 
   # 命名規則の保護: Azureリソース名でエラーにならないよう、使用可能文字を制限
   validation {
@@ -38,6 +40,8 @@ variable "project_name" {
 # 組織特有の管理情報（部署名やコストセンター等）を格納
 variable "tags" {
   description = "すべてのリソースに付与する共通タグ（BusinessUnit, Project等）" # 「01_network/main.tf」で共通タグとマージ
-  type        = map(string)
-  # 補足: EnvironmentやProjectなどの基本タグは main.tf の locals で自動合成される
+  type        = map(string)   # 補足: EnvironmentやProjectなどの基本タグは main.tf の locals で自動合成される
+  default     = {
+    ManagedBy = "Terraform"
+  }
 }
