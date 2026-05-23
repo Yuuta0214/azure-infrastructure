@@ -16,7 +16,42 @@
     mysql_user: "{{ mysql_user }}"
     mysql_password: "{{ mysql_password }}"
 
+    
+
   tasks:
+    # ------------------------------------------
+    # 1.5. OS基本設定フェーズ (NTP, Locale, Update)
+    # ------------------------------------------
+    - name: "Update all packages to latest version"
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: yes
+      become: yes
+
+    - name: "Install NTP/Timezone tools"
+      ansible.builtin.package:
+        name:
+          - chrony
+          - locales
+        state: present
+      become: yes
+
+    - name: "Set timezone to Asia/Tokyo"
+      community.general.timezone:
+        name: Asia/Tokyo
+      become: yes
+
+    - name: "Ensure Japanese locale is generated"
+      community.general.locale_gen:
+        name: ja_JP.UTF-8
+        state: present
+      become: yes
+
+    - name: "Set system default locale"
+      ansible.builtin.command: localectl set-locale LANG=ja_JP.UTF-8
+      become: yes
+      changed_when: false
+      
     # ------------------------------------------
     # 1. 同期・準備フェーズ (既存 site.yml から完全継承)
     # ------------------------------------------
