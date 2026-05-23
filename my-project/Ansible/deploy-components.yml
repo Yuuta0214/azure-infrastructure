@@ -16,8 +16,6 @@
     mysql_user: "{{ mysql_user }}"
     mysql_password: "{{ mysql_password }}"
 
-    
-
   tasks:
     # ------------------------------------------
     # 1.5. OS基本設定フェーズ (NTP, Locale, Update)
@@ -51,7 +49,7 @@
       ansible.builtin.command: localectl set-locale LANG=ja_JP.UTF-8
       become: yes
       changed_when: false
-      
+
     # ------------------------------------------
     # 1. 同期・準備フェーズ (既存 site.yml から完全継承)
     # ------------------------------------------
@@ -109,6 +107,31 @@
     - name: "Ensure Docker service is started and enabled"
       ansible.builtin.systemd:
         name: docker
+        state: started
+        enabled: yes
+      become: yes
+
+    # ------------------------------------------
+    # 2.5. ホスト Nginx インストール・設定フェーズ
+    # ------------------------------------------
+    - name: "Install Nginx on Host"
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: "Configure Nginx as Reverse Proxy"
+      ansible.builtin.template:
+        src: "./nginx-host.conf.j2"
+        dest: "/etc/nginx/sites-available/default"
+        mode: '0644'
+      become: yes
+      notify: Restart Nginx
+
+    - name: "Ensure Nginx is started and enabled"
+      ansible.builtin.systemd:
+        name: nginx
         state: started
         enabled: yes
       become: yes
@@ -264,3 +287,11 @@
     - name: "Display running containers"
       ansible.builtin.debug:
         var: final_status.stdout_lines
+      
+  # handlers は tasks と同じ階層（インデントレベル）に配置します
+  handlers:
+    - name: Restart Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+      become: yes
