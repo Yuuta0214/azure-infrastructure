@@ -68,7 +68,7 @@ resource "azurerm_lb_backend_address_pool" "lb_backend_pool" {
 # ヘルスプローブ (ポート 8080 の監視)
 resource "azurerm_lb_probe" "lb_probe" {
   loadbalancer_id = azurerm_lb.lb.id
-  name            = "http-running-probe-8080"
+  name            = "http-running-probe"
   port            = 8080
   protocol        = "Tcp" # 8080ポートの疎通を確認
 }
