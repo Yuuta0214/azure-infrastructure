@@ -2,8 +2,21 @@
 # 1. 共通変数の定義 (Locals)
 # ==========================================
 locals {
+  # --- 1. 標準設定 (ここに集約) ---
+  project_name = "web" # 固定値化
+
+  # 環境ごとの差異マップ (ここに集約)
+  env_config = {
+    dev  = { region = "japanwest", suffix = "dev" }
+    prod = { region = "japaneast", suffix = "prod" }
+  }
+
+  # 実行環境から現在の設定を自動取得
+  config = local.env_config[var.environment]
+
+  # --- 2. リソース名・タグ生成 ---
   # 命名規則: プロジェクト名-環境名-役割 (mgmt)
-  mgmt_prefix = "${var.project_name}-${var.environment}-mgmt"
+  mgmt_prefix = "${local.project_name}-${var.environment}-mgmt"
 
   # 運用管理用の標準タグ
   common_tags = merge(var.tags, {
@@ -19,7 +32,7 @@ locals {
 # ==========================================
 resource "azurerm_resource_group" "mgmt_rg" {
   name     = "rg-${local.mgmt_prefix}"
-  location = var.location
+  location = local.config.region  # 修正: var.location から変更
   tags     = local.common_tags
 }
 
@@ -27,9 +40,9 @@ resource "azurerm_resource_group" "mgmt_rg" {
 # 3. State保存用ストレージアカウント
 # ==========================================
 resource "azurerm_storage_account" "tfstate_sa" {
-  # 名称ルール: 
-  # 英小文字と数字のみ（ハイフン不可）
-  name                     = "st${var.project_name}${var.environment}backend"
+  # 名称ルール:  英小文字と数字のみ（ハイフン不可）
+  # 修正: var.project_name/environment を local.project_name/config.suffix に変更
+  name                     = "st${local.project_name}${local.config.suffix}backend"
   resource_group_name      = azurerm_resource_group.mgmt_rg.name
   location                 = azurerm_resource_group.mgmt_rg.location
   account_tier             = "Standard"
