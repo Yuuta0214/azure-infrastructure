@@ -37,4 +37,4 @@ services:
 networks:
 # 外部（ALB）からのトラフィックを受けるためのブリッジネットワーク 
   frontend-nw:
-    driver: bridge
+    external: true

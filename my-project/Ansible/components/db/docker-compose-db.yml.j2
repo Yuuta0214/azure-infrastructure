@@ -35,8 +35,7 @@ services:
 {# ========================================== -#}
 networks:
   backend-nw:
-    driver: bridge
-    internal: true
+    external: true
 
 {# ========================================== -#}
 {# ボリューム定義 (データの永続化)            -#}
