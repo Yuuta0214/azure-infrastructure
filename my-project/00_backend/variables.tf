@@ -19,6 +19,7 @@ variable "environment" {
 variable "project_name" {
   description = "プロジェクトの基本名称" # 「00_backend/main.tf」ファイルから参照
   type        = string
+  default     = "web"  # ここにデフォルト値を入れる
 
   # 命名規則の保護: Azureリソース名でエラーにならないよう、使用可能文字を制限
   validation {
