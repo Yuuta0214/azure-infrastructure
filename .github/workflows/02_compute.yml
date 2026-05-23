@@ -128,7 +128,13 @@ jobs:
         id: get_ip
         run: |
           # compute層の実行結果（data source経由）から最新IPを取得
+          # 失敗時に即座に検知できるようリトライ機能やエラーチェックを含めることも可能ですが、
+          # 基本は以下のように確実に変数を拾う形にします
           PUBLIC_IP=$(terraform output -raw public_ip_address)
+          if [ -z "$PUBLIC_IP" ]; then
+            echo "Error: Public IP not found"
+            exit 1
+          fi
           echo "target_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
         working-directory: ./my-project/02_compute
 
