@@ -141,6 +141,12 @@
         mode: '0644'
       become: yes
 
+    - name: "Remove existing DB container" # ★ここに追加
+      ansible.builtin.command: "docker compose -p myapp down"
+      chdir: "{{ project_root }}/components/db"
+      ignore_errors: yes
+      become: yes
+
     - name: "Run docker compose up for DB"
       ansible.builtin.command:
         cmd: "docker compose -p myapp up -d"  # ★プロジェクト名を指定
@@ -190,10 +196,24 @@
         mode: '0644'
       become: yes
 
+    # --- App用 ---
+    - name: "Remove existing App container"
+      ansible.builtin.command: "docker compose -p myapp down"
+      chdir: "{{ project_root }}/components/app"
+      ignore_errors: yes
+      become: yes
+
     - name: "Run docker compose up for App"
       ansible.builtin.command:
         cmd: "docker compose -p myapp up -d"  # ★同じプロジェクト名を指定
         chdir: "{{ project_root }}/components/app"
+      become: yes
+
+    # --- Web用 ---
+    - name: "Remove existing Web container"
+      ansible.builtin.command: "docker compose -p myapp down"
+      chdir: "{{ project_root }}/components/web"
+      ignore_errors: yes
       become: yes
 
     - name: "Run docker compose up for Web"
