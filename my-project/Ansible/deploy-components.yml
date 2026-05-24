@@ -293,6 +293,7 @@
           - nginx
           - libmodsecurity3
           - libnginx-mod-http-modsecurity
+          - modsecurity-crs  # ★ここを追加してください
         state: present
         update_cache: yes
       become: yes
