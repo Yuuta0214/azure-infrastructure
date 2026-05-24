@@ -260,11 +260,15 @@
       become: yes
 
     # ------------------------------------------
-    # 8. ホスト Nginx インストール・設定フェーズ (★最後に実行)
+    # 8. ホスト Nginx + ModSecurity 構築フェーズ
     # ------------------------------------------
-    - name: "Install Nginx on Host"
+    - name: "Install Nginx and ModSecurity components"
       ansible.builtin.apt:
-        name: nginx
+        name:
+          - nginx
+          - libmodsecurity3
+          - libnginx-mod-http-modsecurity
+          - modsecurity-crs
         state: present
         update_cache: yes
       become: yes
@@ -275,28 +279,6 @@
         dest: "/etc/nginx/sites-available/default"
         mode: '0644'
       become: yes
-      notify: Restart Nginx
-
-    - name: "Ensure Nginx is started and enabled"
-      ansible.builtin.systemd:
-        name: nginx
-        state: started
-        enabled: yes
-      become: yes
-
-    # ------------------------------------------
-    # 9. ホスト Nginx + ModSecurity インストール・設定フェーズ
-    # ------------------------------------------
-    - name: "Install Nginx and ModSecurity"
-      ansible.builtin.apt:
-        name:
-          - nginx
-          - libmodsecurity3
-          - libnginx-mod-http-modsecurity
-          - modsecurity-crs  # ★ここを追加してください
-        state: present
-        update_cache: yes
-      become: yes
 
     - name: "Create ModSecurity configuration directory"
       ansible.builtin.file:
@@ -305,32 +287,27 @@
         mode: '0755'
       become: yes
 
-    - name: "Copy ModSecurity recommended configuration"
+    - name: "Copy ModSecurity files"
       ansible.builtin.copy:
-        # インストール済みパスからコピー (※/usr/share/modsecurity-crs/modsecurity.conf-recommendedではない)
-        src: /usr/share/nginx/docs/modsecurity/modsecurity.conf 
-        dest: /etc/nginx/modsec/modsecurity.conf
-        remote_src: yes
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        remote_src: "{{ item.remote_src | default(false) }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote_src: true }
+        - { src: '/usr/share/nginx/docs/modsecurity/unicode.mapping', dest: '/etc/nginx/modsec/unicode.mapping', remote_src: true }
+        - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
       become: yes
 
-    - name: "Copy unicode.mapping to ModSecurity directory"
-      ansible.builtin.copy:
-        src: /usr/share/nginx/docs/modsecurity/unicode.mapping
-        dest: /etc/nginx/modsec/unicode.mapping
-        remote_src: yes
-        mode: '0644'
-      become: yes
-    
     - name: "Configure ModSecurity logging and engine"
       ansible.builtin.lineinfile:
         path: /etc/nginx/modsec/modsecurity.conf
         regexp: "{{ item.regexp }}"
         line: "{{ item.line }}"
       loop:
-        - { regexp: '^SecRuleEngine', line: 'SecRuleEngine On' }
+        - { regexp: '^SecRuleEngine ', line: 'SecRuleEngine On' }
         - { regexp: '^#?SecAuditLog ', line: 'SecAuditLog /var/log/modsec_audit.log' }
       become: yes
-      notify: Restart Nginx
 
     - name: "Ensure ModSecurity audit log file is managed"
       ansible.builtin.file:
@@ -340,17 +317,17 @@
         group: www-data
         mode: '0644'
       become: yes
-   
-    - name: "Copy modsecurity-rules.conf to remote VM"
-      ansible.builtin.copy:
-        src: "./modsecurity-rules.conf"
-        dest: "/etc/nginx/modsec/modsecurity-rules.conf"
-        mode: '0644'
+
+    # すべての設定完了後に初めて起動する
+    - name: "Ensure Nginx is started and enabled"
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: yes
       become: yes
 
-
     # ------------------------------------------
-    # 10. 最終デプロイ検証フェーズ
+    # 9. 最終デプロイ検証フェーズ
     # ------------------------------------------
     - name: "Verify all running components"
       ansible.builtin.command:
