@@ -307,7 +307,7 @@
 
     - name: "Copy ModSecurity recommended configuration"
       ansible.builtin.copy:
-        src: /usr/share/modsecurity-crs/modsecurity.conf-recommended # インストール済みパスからコピー
+        src: /usr/share/nginx/docs/modsecurity/modsecurity.conf # インストール済みパスからコピー (※/usr/share/modsecurity-crs/modsecurity.conf-recommendedではない)
         dest: /etc/nginx/modsec/modsecurity.conf
         remote_src: yes
       become: yes
