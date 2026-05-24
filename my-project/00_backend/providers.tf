@@ -25,6 +25,9 @@ provider "azurerm" {
   # GitHub Actions (OIDC) 連携を有効化
   use_oidc = true
 
+  # 【追加】このオプションで「全リソースプロバイダーの登録確認」をスキップします
+  skip_provider_registration = true
+
   features {
     # ---------------------------------------------------------
     # リソースグループの保護設定

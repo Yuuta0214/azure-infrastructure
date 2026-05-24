@@ -11,7 +11,7 @@ variable "location" {
 variable "environment" {
   description = "実行環境 (prod または dev)"
   type        = string
-
+  
   # 許容値の制限: 01_network と整合
   validation {
     condition     = contains(["prod", "dev"], var.environment)
@@ -23,6 +23,8 @@ variable "environment" {
 variable "project_name" {
   description = "プロジェクトの基本名称"
   type        = string
+  # 【修正】デフォルト値を設定し、GitHub Actionsでの入力待ちを物理的に防ぎます
+  default     = "web"
 
   validation {
     condition     = can(regex("^[a-z0-9-]+$", var.project_name))

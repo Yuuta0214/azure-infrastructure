@@ -51,7 +51,7 @@ jobs:
       - name: 1-5, Terraform Plan
         working-directory: ./my-project/00_backend
         run: |
-          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-backend
+          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -var="project_name=web" -out=tfplan-backend
 
       # 2回目以降の冪等性を守るため、プラン結果を一時保存
       - name: 1-6, Upload Plan Artifact
