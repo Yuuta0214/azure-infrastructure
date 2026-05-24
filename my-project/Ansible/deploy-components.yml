@@ -112,7 +112,7 @@
       become: yes
 
     # ------------------------------------------
-    # 2.2. ポート競合自動回避フェーズ
+    # 3. ポート競合自動回避フェーズ
     # ------------------------------------------
     - name: "Stop and remove all existing containers to free up port 80"
       ansible.builtin.shell: |
@@ -125,7 +125,7 @@
       changed_when: false # 常に実行して問題ないため
 
     # ------------------------------------------
-    # 3. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
+    # 4. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
     # ------------------------------------------
     - name: "Create component directories on remote VM"
       ansible.builtin.file:
@@ -175,7 +175,7 @@
       changed_when: "network_create.rc == 0"
 
     # ------------------------------------------
-    # 4. DBコンテナ配置・起動フェーズ (最優先)
+    # 5. DBコンテナ配置・起動フェーズ (最優先)
     # ------------------------------------------
     - name: "Deploy docker-compose-db.yml from template"
       ansible.builtin.template:
@@ -197,7 +197,7 @@
       become: yes
 
     # ------------------------------------------
-    # 5. DBヘルスチェック監視フェーズ
+    # 6. DBヘルスチェック監視フェーズ
     # ------------------------------------------
     - name: "Wait for DB container to become healthy"
       ansible.builtin.command:
@@ -210,7 +210,7 @@
       changed_when: false
 
     # ------------------------------------------
-    # 6. App・Webコンテナ配置・起動フェーズ
+    # 7. App・Webコンテナ配置・起動フェーズ
     # ------------------------------------------
     - name: "Create app source directory on remote VM"
       ansible.builtin.file:
@@ -260,7 +260,7 @@
       become: yes
 
     # ------------------------------------------
-    # 2.5. ホスト Nginx インストール・設定フェーズ (★最後に実行)
+    # 8. ホスト Nginx インストール・設定フェーズ (★最後に実行)
     # ------------------------------------------
     - name: "Install Nginx on Host"
       ansible.builtin.apt:
@@ -285,7 +285,48 @@
       become: yes
 
     # ------------------------------------------
-    # 7. 最終デプロイ検証フェーズ
+    # 9. ホスト Nginx + ModSecurity インストール・設定フェーズ
+    # ------------------------------------------
+    - name: "Install Nginx and ModSecurity"
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - libmodsecurity3
+          - libnginx-mod-http-modsecurity
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: "Create ModSecurity configuration directory"
+      ansible.builtin.file:
+        path: /etc/nginx/modsec
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: "Copy ModSecurity recommended configuration"
+      ansible.builtin.copy:
+        src: /usr/share/modsecurity-crs/modsecurity.conf-recommended # インストール済みパスからコピー
+        dest: /etc/nginx/modsec/modsecurity.conf
+        remote_src: yes
+      become: yes
+
+    - name: "Enable ModSecurity rule in main config"
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/modsec/modsecurity.conf
+        regexp: '^SecRuleEngine DetectionOnly'
+        line: 'SecRuleEngine On' # 運用環境に合わせてOnに変更
+      become: yes
+    
+    - name: "Copy modsecurity-rules.conf to remote VM"
+      ansible.builtin.copy:
+        src: "./modsecurity-rules.conf"
+        dest: "/etc/nginx/modsec/modsecurity-rules.conf"
+        mode: '0644'
+      become: yes
+
+    # ------------------------------------------
+    # 10. 最終デプロイ検証フェーズ
     # ------------------------------------------
     - name: "Verify all running components"
       ansible.builtin.command:
