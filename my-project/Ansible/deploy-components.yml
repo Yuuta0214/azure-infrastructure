@@ -312,6 +312,14 @@
         dest: /etc/nginx/modsec/modsecurity.conf
         remote_src: yes
       become: yes
+
+    - name: "Copy unicode.mapping to ModSecurity directory"
+      ansible.builtin.copy:
+        src: /usr/share/nginx/docs/modsecurity/unicode.mapping
+        dest: /etc/nginx/modsec/unicode.mapping
+        remote_src: yes
+        mode: '0644'
+      become: yes
     
     - name: "Configure ModSecurity logging and engine"
       ansible.builtin.lineinfile:
