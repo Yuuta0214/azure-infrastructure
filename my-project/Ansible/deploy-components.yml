@@ -301,9 +301,9 @@
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
       become: yes
 
-    # 👈 【修正】OSが管理する本来のルール群のパス（/usr/share）から集約するように変更
-    - name: "Copy CRS rule files to /etc/nginx/modsec/rules/"
-      ansible.builtin.shell: "cp /usr/share/modsecurity-crs/rules/*.conf /etc/nginx/modsec/rules/"
+    # --- 【確実な修正】*.conf だけでなく、依存する *.data ファイルもすべて一括同期 ---
+    - name: "Copy CRS rule and data files to /etc/nginx/modsec/rules/"
+      ansible.builtin.shell: "cp /usr/share/modsecurity-crs/rules/* /etc/nginx/modsec/rules/"
       become: yes
       changed_when: false
       
