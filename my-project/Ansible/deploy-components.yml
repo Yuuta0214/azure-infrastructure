@@ -325,6 +325,11 @@
         - { regexp: '^SecRuleEngine ', line: 'SecRuleEngine On' }
         - { regexp: '^SecAuditLogType ', line: 'SecAuditLogType Serial' }
         - { regexp: '^#?SecAuditLog ', line: 'SecAuditLog /var/log/modsec_audit.log' }
+        # 👈 【追加：500エラーの根本解決】ModSecurityの内部処理バッファとアクション制限を最適化
+        - { regexp: '^SecRequestBodyLimit ', line: 'SecRequestBodyLimit 14107200' }
+        - { regexp: '^SecRequestBodyNoFilesLimit ', line: 'SecRequestBodyNoFilesLimit 11048576' }
+        - { regexp: '^SecResponseBodyLimit ', line: 'SecResponseBodyLimit 10524288' }
+        - { regexp: '^SecRequestBodyLimitAction ', line: 'SecRequestBodyLimitAction ProcessPartial' }
       become: yes
 
     # 👈 【修正：500エラー対策】Nginx実行ユーザー(www-data)が直接このファイルを完全に読み書きできるようにパーミッションを0666に拡張
