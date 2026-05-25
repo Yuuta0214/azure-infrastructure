@@ -280,23 +280,42 @@
         mode: '0644'
       become: yes
 
+    # --- ModSecurity 設定ディレクトリの整理 ---
     - name: "Create ModSecurity configuration directory"
       ansible.builtin.file:
-        path: /etc/nginx/modsec
+        path: "{{ item }}"
         state: directory
         mode: '0755'
+      loop:
+        - /etc/nginx/modsec
+        - /etc/nginx/modsec/rules
       become: yes
 
-    - name: "Copy ModSecurity files"
+    # --- ルールファイルを /etc/nginx/modsec/ に集約 ---
+    - name: "Copy ModSecurity base config and mapping"
       ansible.builtin.copy:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
         remote_src: "{{ item.remote_src | default(false) }}"
-        mode: "{{ item.mode | default('0644') }}"
+        mode: '0644'
       loop:
         - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote_src: true }
         - { src: '/usr/share/nginx/docs/modsecurity/unicode.mapping', dest: '/etc/nginx/modsec/unicode.mapping', remote_src: true }
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
+      become: yes
+
+    - name: "Sync CRS rules to /etc/nginx/modsec/rules/"
+      ansible.builtin.command:
+        cmd: "cp -r /etc/modsecurity/crs/rules/ /etc/nginx/modsec/"
+      become: yes
+      changed_when: false
+
+    - name: "Copy crs-setup.conf to /etc/nginx/modsec/"
+      ansible.builtin.copy:
+        src: "/etc/modsecurity/crs/crs-setup.conf"
+        dest: "/etc/nginx/modsec/crs-setup.conf"
+        remote_src: yes
+        mode: '0644'
       become: yes
 
     - name: "Configure ModSecurity logging and engine"
