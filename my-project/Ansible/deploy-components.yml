@@ -304,15 +304,11 @@
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
       become: yes
 
-    # --- 【修正後】Sync CRS rules to /etc/nginx/modsec/rules/ ---
+    # --- 【確実な修正対応】シェル展開を利用して.confファイルを安全に同期 ---
     - name: "Copy CRS rule files to /etc/nginx/modsec/rules/"
-      ansible.builtin.copy:
-        src: "/etc/modsecurity/crs/"
-        dest: "/etc/nginx/modsec/rules/"
-        remote_src: yes
-        mode: '0644'
-        include: "*.conf"
+      ansible.builtin.shell: "cp /etc/modsecurity/crs/*.conf /etc/nginx/modsec/rules/"
       become: yes
+      changed_when: false
       
     - name: "Copy crs-setup.conf to /etc/nginx/modsec/"
       ansible.builtin.copy:
