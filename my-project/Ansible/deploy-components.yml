@@ -278,6 +278,7 @@
         dest: "/etc/nginx/sites-available/default"
         mode: '0644'
       become: yes
+      notify: Restart Nginx  # 👈 設定が変わったら、末尾のハンドラーで再起動させる
 
     - name: "Create ModSecurity configuration directory"
       ansible.builtin.file:
