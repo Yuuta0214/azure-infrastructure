@@ -58,7 +58,7 @@
         path: /var/tmp/bootstrap_complete
         state: present
         timeout: 600
-      become: no  # bootstrap.shの完了を待つだけなのでsudo不要
+      become: no
 
     - name: "Gather facts after bootstrap confirmation"
       ansible.builtin.setup:
@@ -116,13 +116,12 @@
     # ------------------------------------------
     - name: "Stop and remove all existing containers to free up port 80"
       ansible.builtin.shell: |
-        # コンテナIDを取得して停止・削除
         containers=$(docker ps -q)
         if [ -n "$containers" ]; then
           docker rm -f $containers
         fi
       become: yes
-      changed_when: false # 常に実行して問題ないため
+      changed_when: false
 
     # ------------------------------------------
     # 4. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
@@ -143,7 +142,7 @@
     - name: "Copy nginx.conf to project root"
       ansible.builtin.copy:
         src: "./nginx.conf"
-        dest: "{{ project_root }}/components/web/nginx.conf"  # 👈 コピー先を components/web/ 配下に変更
+        dest: "{{ project_root }}/components/web/nginx.conf"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
@@ -152,7 +151,7 @@
     - name: "Copy html directory to project root"
       ansible.builtin.copy:
         src: "./html"
-        dest: "{{ project_root }}/components/web/"            # 👈 コピー先を components/web/ 配下に変更（末尾の「git」は完全削除）
+        dest: "{{ project_root }}/components/web/"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0755'
@@ -192,7 +191,7 @@
 
     - name: "Run docker compose up for DB"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"  # ★プロジェクト名を指定
+        cmd: "docker compose -p myapp up -d"
         chdir: "{{ project_root }}/components/db"
       become: yes
 
@@ -280,7 +279,6 @@
         mode: '0644'
       become: yes
 
-    # --- ModSecurity 設定ディレクトリの整理 ---
     - name: "Create ModSecurity configuration directory"
       ansible.builtin.file:
         path: "{{ item }}"
@@ -291,7 +289,6 @@
         - /etc/nginx/modsec/rules
       become: yes
 
-    # --- ルールファイルを /etc/nginx/modsec/ に集約 ---
     - name: "Copy ModSecurity base config and mapping"
       ansible.builtin.copy:
         src: "{{ item.src }}"
@@ -304,9 +301,9 @@
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
       become: yes
 
-    # --- 【確実な修正対応】シェル展開を利用して.confファイルを安全に同期 ---
+    # 👈 【修正】OSが管理する本来のルール群のパス（/usr/share）から集約するように変更
     - name: "Copy CRS rule files to /etc/nginx/modsec/rules/"
-      ansible.builtin.shell: "cp /etc/modsecurity/crs/*.conf /etc/nginx/modsec/rules/"
+      ansible.builtin.shell: "cp /usr/share/modsecurity-crs/rules/*.conf /etc/nginx/modsec/rules/"
       become: yes
       changed_when: false
       
@@ -337,7 +334,12 @@
         mode: '0644'
       become: yes
 
-    # すべての設定完了後に初めて起動する
+    # 👈 【追加】サービスを起動する前に、コード上で構文テストを自動実行
+    - name: "Test Nginx configuration syntax"
+      ansible.builtin.command: nginx -t
+      become: yes
+      changed_when: false
+
     - name: "Ensure Nginx is started and enabled"
       ansible.builtin.systemd:
         name: nginx
