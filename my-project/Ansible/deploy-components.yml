@@ -278,7 +278,7 @@
         dest: "/etc/nginx/sites-available/default"
         mode: '0644'
       become: yes
-      notify: Restart Nginx  # 👈 設定が変わったら、末尾のハンドラーで再起動させる
+      notify: Restart Nginx
 
     - name: "Create ModSecurity configuration directory"
       ansible.builtin.file:
@@ -302,7 +302,6 @@
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
       become: yes
 
-    # --- 【確実な修正】*.conf だけでなく、依存する *.data ファイルもすべて一括同期 ---
     - name: "Copy CRS rule and data files to /etc/nginx/modsec/rules/"
       ansible.builtin.shell: "cp /usr/share/modsecurity-crs/rules/* /etc/nginx/modsec/rules/"
       become: yes
@@ -316,6 +315,7 @@
         mode: '0644'
       become: yes
 
+    # 👈 【修正：500エラー対策】ログ形式を確実に「Serial」に変更するためのループ処理
     - name: "Configure ModSecurity logging and engine"
       ansible.builtin.lineinfile:
         path: /etc/nginx/modsec/modsecurity.conf
@@ -323,19 +323,20 @@
         line: "{{ item.line }}"
       loop:
         - { regexp: '^SecRuleEngine ', line: 'SecRuleEngine On' }
+        - { regexp: '^SecAuditLogType ', line: 'SecAuditLogType Serial' }
         - { regexp: '^#?SecAuditLog ', line: 'SecAuditLog /var/log/modsec_audit.log' }
       become: yes
 
+    # 👈 【修正：500エラー対策】Nginx実行ユーザー(www-data)が直接このファイルを完全に読み書きできるようにパーミッションを0666に拡張
     - name: "Ensure ModSecurity audit log file is managed"
       ansible.builtin.file:
         path: /var/log/modsec_audit.log
         state: touch
         owner: www-data
         group: www-data
-        mode: '0644'
+        mode: '0666'
       become: yes
 
-    # 👈 【追加】サービスを起動する前に、コード上で構文テストを自動実行
     - name: "Test Nginx configuration syntax"
       ansible.builtin.command: nginx -t
       become: yes
