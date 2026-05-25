@@ -315,24 +315,10 @@
         mode: '0644'
       become: yes
 
-    # 👈 【修正：500エラー対策】ログ形式を確実に「Serial」に変更するためのループ処理
-    - name: "Configure ModSecurity logging and engine"
-      ansible.builtin.lineinfile:
-        path: /etc/nginx/modsec/modsecurity.conf
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-      loop:
-        - { regexp: '^SecRuleEngine ', line: 'SecRuleEngine On' }
-        - { regexp: '^SecAuditLogType ', line: 'SecAuditLogType Serial' }
-        - { regexp: '^#?SecAuditLog ', line: 'SecAuditLog /var/log/modsec_audit.log' }
-        # 👈 【追加：500エラーの根本解決】ModSecurityの内部処理バッファとアクション制限を最適化
-        - { regexp: '^SecRequestBodyLimit ', line: 'SecRequestBodyLimit 14107200' }
-        - { regexp: '^SecRequestBodyNoFilesLimit ', line: 'SecRequestBodyNoFilesLimit 11048576' }
-        - { regexp: '^SecResponseBodyLimit ', line: 'SecResponseBodyLimit 10524288' }
-        - { regexp: '^SecRequestBodyLimitAction ', line: 'SecRequestBodyLimitAction ProcessPartial' }
-      become: yes
+    # ⚠️ 【削除】Configure ModSecurity logging and engine タスクは丸ごと削除します。
+    # 代わりに設定ファイル（modsecurity-rules.conf）で一元管理します。
 
-    # 👈 【修正：500エラー対策】Nginx実行ユーザー(www-data)が直接このファイルを完全に読み書きできるようにパーミッションを0666に拡張
+    # 👈 ログの箱だけはシステム側に作っておく（権限は一般ユーザーまで広げて安全に）
     - name: "Ensure ModSecurity audit log file is managed"
       ansible.builtin.file:
         path: /var/log/modsec_audit.log
