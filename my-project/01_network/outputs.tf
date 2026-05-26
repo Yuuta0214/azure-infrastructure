@@ -40,8 +40,9 @@ output "backend_subnet_id" {
 
 output "network_security_group_id" {
   description = "適用されているネットワークセキュリティグループ（NSG）のID"
-  # セキュリティ監査や後続のサブネット追加時に参照します
-  value       = azurerm_network_security_group.nsg.id
+  # 以前の .nsg から .nsg_backend に修正します
+  # value     = azurerm_network_security_group.nsg_frontend.id  ※フロントエンド用
+  value       = azurerm_network_security_group.nsg_backend.id
 }
 
 # ------------------------------------------
