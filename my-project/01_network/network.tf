@@ -119,103 +119,83 @@ resource "azurerm_lb_rule" "lb_rule_80" {
 # ==========================================
 # 8. ネットワークセキュリティグループ (NSG) の作成
 # ==========================================
-resource "azurerm_network_security_group" "nsg" {
-  name                = "nsg-${local.resource_prefix}"
+
+# 8-1. Frontend用 NSG (DMZ用)
+resource "azurerm_network_security_group" "nsg_frontend" {
+  name                = "nsg-frontend-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
-  # インターネットからの HTTP (80) アクセスを許可 (priority 100)
+  # HTTP(80) 許可
   security_rule {
-    name                         = "AllowHTTP80Inbound"
-    priority                     = 100
-    direction                    = "Inbound"
-    access                       = "Allow"
-    protocol                     = "Tcp"
-    source_port_range            = "*"
-    destination_port_range       = "80"
-    source_address_prefix        = "Internet"
-    destination_address_prefix   = "*"
+    name                       = "AllowHTTP80Inbound"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
   }
 
-  # インターネットからの HTTP (8080) アクセスを許可 (priority 110)
+  # HTTPS(443) 許可
   security_rule {
-    name                         = "AllowHTTP8080Inbound"
-    priority                     = 110
-    direction                    = "Inbound"
-    access                       = "Allow"
-    protocol                     = "Tcp"
-    source_port_range            = "*"
-    destination_port_range       = "8080"
-    source_address_prefix        = "Internet"
-    destination_address_prefix   = "*"
+    name                       = "AllowHTTPS443Inbound"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
   }
+  tags = local.common_tags
+}
 
-  # Azure LB からの 80 ポートへのヘルスチェックを許可 (priority 120)
+# 8-2. Backend用 NSG (内部サーバー保護用)
+resource "azurerm_network_security_group" "nsg_backend" {
+  name                = "nsg-backend-${local.resource_prefix}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
   security_rule {
-    name                         = "AllowLBHealthCheck80"
-    priority                     = 120
-    direction                    = "Inbound"
-    access                       = "Allow"
-    protocol                     = "Tcp"
-    source_port_range            = "*"
-    destination_port_range       = "80"
-    source_address_prefix        = "AzureLoadBalancer"
-    destination_address_prefix   = "*"
+    name                       = "AllowAppFromFrontend"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "8080"
+    source_address_prefix      = "10.0.1.0/24" # Frontendサブネットのみ許可
+    destination_address_prefix = "*"
   }
-
-  # Azure LB からの 8080 ポートへのヘルスチェックを許可 (priority 130)
   security_rule {
-    name                         = "AllowLBHealthCheck8080"
-    priority                     = 130
-    direction                    = "Inbound"
-    access                       = "Allow"
-    protocol                     = "Tcp"
-    source_port_range            = "*"
-    destination_port_range       = "8080"
-    source_address_prefix        = "AzureLoadBalancer"
-    destination_address_prefix   = "*"
+    name                       = "AllowSSH"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "Internet" # 本来はここを管理者IPに限定推奨
+    destination_address_prefix = "*"
   }
-
-  # 【修正：セキュリティのベストプラクティス】
-  # 管理用 SSH（22ポート）: インターネット全体(Internet)からの許可は攻撃リスクが非常に高いため、
-  # 運用時は特定の「管理者IP」等に限定することを強く推奨。一旦、デフォルト動作は維持しつつ
-  # タグを用いた内部通信の制限等を考慮する構成にします。
-  # SSH (22ポート) (priority 140)
-  security_rule {
-    name                         = "AllowSSHInbound"
-    priority                     = 140
-    direction                    = "Inbound"
-    access                       = "Allow"
-    protocol                     = "Tcp"
-    source_port_range            = "*"
-    destination_port_range       = "22"
-    source_address_prefix        = "Internet"
-    destination_address_prefix   = "*"
-  }
-
   tags = local.common_tags
 }
 
 # ==========================================
 # 9. NSGとサブネットの関連付け
 # ==========================================
-# サブネット作成とNSG作成が完了した後に実行される
-resource "azurerm_subnet_network_security_group_association" "backend_nsg_assoc" {
-  subnet_id                 = azurerm_subnet.backend.id
-  network_security_group_id = azurerm_network_security_group.nsg.id
+# フロントエンドサブネットに nsg_frontend を紐付け
+resource "azurerm_subnet_network_security_group_association" "frontend_assoc" {
+  subnet_id                 = azurerm_subnet.frontend.id
+  network_security_group_id = azurerm_network_security_group.nsg_frontend.id
 }
 
-# network.tf の末尾などに追加
-resource "azurerm_network_security_rule" "allow_https" {
-  name                        = "AllowHTTPSInbound"
-  priority                    = 150
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_range      = "443"
-  source_address_prefix       = "Internet"
-  destination_address_prefix  = "*"
-  resource_group_name         = azurerm_resource_group.rg.name
-  network_security_group_name = azurerm_network_security_group.nsg.name
+# バックエンドサブネットに nsg_backend を紐付け (★ここを修正！)
+resource "azurerm_subnet_network_security_group_association" "backend_assoc" {
+  subnet_id                 = azurerm_subnet.backend.id
+  network_security_group_id = azurerm_network_security_group.nsg_backend.id
 }
