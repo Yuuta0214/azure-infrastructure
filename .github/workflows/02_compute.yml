@@ -120,16 +120,16 @@ jobs:
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
 
-      # 【変更】6-7, Bastionトンネルの確立に必要なVMのリソースIDをTerraformから取得
-      - name: 6-7, Get VM Info for Bastion Tunnel
-        id: get_vm_info
+      # 6-7, Bastionを完全に迂回し、LBのパブリックIPを取得
+      - name: 6-7, Get LB Public IP
+        id: get_ip
         run: |
-          VM_ID=$(terraform output -raw vm_resource_id)
-          if [ -z "$VM_ID" ]; then
-            echo "Error: VM Resource ID not found"
+          LB_IP=$(terraform output -raw lb_public_ip)
+          if [ -z "$LB_IP" ]; then
+            echo "Error: LB Public IP not found"
             exit 1
           fi
-          echo "vm_id=$VM_ID" >> $GITHUB_OUTPUT
+          echo "target_ip=$LB_IP" >> $GITHUB_OUTPUT
         working-directory: ./my-project/02_compute
 
       # 6-8, SSH秘密鍵のセットアップ
@@ -139,43 +139,11 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 6-9, Azure Bastion 拡張機能の強制導入と、確実なトンネル生存確認ループ
-      - name: 6-9, Create Azure Bastion SSH Tunnel with Health Check
-        run: |
-          echo "Configuring Azure CLI to install extensions without prompting..."
-          az config set extension.use_dynamic_install=yes_without_prompt
-
-          echo "Starting Azure Bastion Tunnel in background..."
-          az network bastion tunnel \
-            --name "bastion-web-${{ env.TARGET_ENV }}" \
-            --resource-group "rg-web-${{ env.TARGET_ENV }}" \
-            --target-resource-id "${{ steps.get_vm_info.outputs.vm_id }}" \
-            --resource-port 22 \
-            --port 50022 &
-          
-          echo "Waiting for Bastion tunnel port 50022 to become available..."
-          # 最大30回（計60秒）、2秒ごとにポート 50022 の開放をチェック
-          FOR_COUNT=0
-          while ! nc -z 127.0.0.1 50022; do
-            FOR_COUNT=$((FOR_COUNT+1))
-            if [ $FOR_COUNT -ge 30 ]; then
-              echo "Error: Azure Bastion tunnel failed to open on port 50022 within 60 seconds."
-              echo "Showing background jobs status:"
-              jobs
-              exit 1
-            fi
-            echo "Tunnel port is not ready yet. Retrying in 2 seconds... ($FOR_COUNT/30)"
-            sleep 2
-          done
-
-          echo "Success: Azure Bastion Tunnel established successfully on port 50022!"
-        working-directory: ./my-project/02_compute
-
-      # 6-10, Ansibleの実行（Ansibleフォルダ内の完璧な設定をそのまま継承）
-      - name: 6-10, Run Ansible Playbook via Bastion Tunnel
+      # 6-9, Ansibleの実行（LBのパブリックIPと、設定したNATポート経由で実行）
+      - name: 6-9, Run Ansible Playbook via LB NAT
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
-            --extra-vars "ansible_host=127.0.0.1 \
+            --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
                           ansible_port=50022 \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
                           mysql_root_password=rootpassword \

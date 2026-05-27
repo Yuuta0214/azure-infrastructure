@@ -90,9 +90,20 @@ resource "azurerm_lb_rule" "lb_rule_8080" {
   probe_id                       = azurerm_lb_probe.lb_probe_80.id
 }
 
+resource "azurerm_lb_nat_rule" "lb_nat_ssh" {
+  resource_group_name            = azurerm_resource_group.rg.name
+  loadbalancer_id                = azurerm_lb.lb.id
+  name                           = "SSH-Inbound-NAT-50022"
+  protocol                       = "Tcp"
+  frontend_port                  = 50022                 # Actionsがアクセスする外部ポート
+  backend_port                   = 22                    # VM側のSSH待ち受けポート
+  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+}
+
+# 【重要】また、VMのネットワークインターフェース（NIC）の定義側（compute.tf等）で、
+# このインバウンドNAT規則（azurerm_lb_nat_rule.lb_nat_ssh.id）を関連付ける必要があります。
 # ★不要な「LBRule-SSH-22」および「LBRule-HTTP-80」は、
 # 管理用裏口を公開しないセキュリティ設計、およびポート集約の観点から物理的に削除しました。
-
 # ==========================================
 # 8. Azure Bastion の作成
 # ==========================================
@@ -109,6 +120,9 @@ resource "azurerm_bastion_host" "bastion" {
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   sku                 = "Standard"
+  
+  # ★【最重要修正】これがないと az network bastion tunnel コマンドが KeyError でクラッシュします
+  tunneling_enabled   = true
 
   ip_configuration {
     name                 = "configuration"
