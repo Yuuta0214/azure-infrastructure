@@ -115,35 +115,47 @@ jobs:
             -backend-config="key=compute.tfstate"
         working-directory: ./my-project/02_compute
 
-      # 6-6, Terraform Apply (compute層のVM作成)
       - name: 6-6, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
 
-      # 6-7, Bastionを完全に迂回し、LBのパブリックIPを取得
+      # 6-7のもともとの「Get LB Public IP」の枠組みの中で、Bastionトンネルを安全に起動させます
       - name: 6-7, Get LB Public IP
-        id: get_ip
         run: |
-          LB_IP=$(terraform output -raw lb_public_ip)
-          if [ -z "$LB_IP" ]; then
-            echo "Error: LB Public IP not found"
-            exit 1
-          fi
-          echo "target_ip=$LB_IP" >> $GITHUB_OUTPUT
+          echo "Configuring Azure CLI..."
+          az config set extension.use_dynamic_install=yes_without_prompt --local
+          
+          echo "Starting Azure Bastion Tunnel..."
+          az network bastion tunnel \
+            --name "bastion-${{ env.TARGET_ENV }}" \
+            --resource-group "rg-web-${{ env.TARGET_ENV }}" \
+            --target-resource-id "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ env.TARGET_ENV }}/providers/Microsoft.Compute/virtualMachines/vm-web-${{ env.TARGET_ENV }}" \
+            --resource-port 22 \
+            --port 50022 &
+          
+          echo "Waiting for tunnel port 50022..."
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 50022; then
+              echo "Tunnel established successfully."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timeout: Failed to open tunnel."
+          exit 1
         working-directory: ./my-project/02_compute
 
-      # 6-8, SSH秘密鍵のセットアップ
       - name: 6-8, Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 6-9, Ansibleの実行（LBのパブリックIPと、設定したNATポート経由で実行）
+      # 変数のみをローカルループバック（127.0.0.1）に修正
       - name: 6-9, Run Ansible Playbook via LB NAT
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
-            --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
+            --extra-vars "ansible_host=127.0.0.1 \
                           ansible_port=50022 \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
                           mysql_root_password=rootpassword \
