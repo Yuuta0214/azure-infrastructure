@@ -46,7 +46,20 @@ output "network_security_group_id" {
 }
 
 # ------------------------------------------
-# 3. 運用・保守用メタデータ
+# 3. Bastion 管理情報（追加）
+# ------------------------------------------
+output "bastion_host_id" {
+  description = "Azure Bastion ホストのID"
+  value       = azurerm_bastion_host.bastion.id
+}
+
+output "bastion_public_ip" {
+  description = "Azure Bastion に割り当てられたパブリックIPアドレス"
+  value       = azurerm_public_ip.pip_bastion.ip_address
+}
+
+# ------------------------------------------
+# 4. 運用・保守用メタデータ
 # ------------------------------------------
 
 output "location" {
