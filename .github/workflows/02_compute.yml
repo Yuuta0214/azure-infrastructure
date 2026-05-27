@@ -139,10 +139,13 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 【新設】6-8.5, Azure Bastion 経由のセキュアなSSHトンネルをバックグラウンドで確立
-      - name: 6-8-5, Create Azure Bastion SSH Tunnel
+      # 6-9, Azure Bastion 拡張機能の強制導入と、確実なトンネル生存確認ループ
+      - name: 6-9, Create Azure Bastion SSH Tunnel with Health Check
         run: |
-          echo "Starting Azure Bastion Tunnel..."
+          echo "Configuring Azure CLI to install extensions without prompting..."
+          az config set extension.use_dynamic_install=yes_without_prompt
+
+          echo "Starting Azure Bastion Tunnel in background..."
           az network bastion tunnel \
             --name "bastion-web-${{ env.TARGET_ENV }}" \
             --resource-group "rg-web-${{ env.TARGET_ENV }}" \
@@ -150,19 +153,30 @@ jobs:
             --resource-port 22 \
             --port 50022 &
           
-          echo "Waiting 15 seconds for tunnel to be established..."
-          sleep 15
+          echo "Waiting for Bastion tunnel port 50022 to become available..."
+          # 最大30回（計60秒）、2秒ごとにポート 50022 の開放をチェック
+          FOR_COUNT=0
+          while ! nc -z 127.0.0.1 50022; do
+            FOR_COUNT=$((FOR_COUNT+1))
+            if [ $FOR_COUNT -ge 30 ]; then
+              echo "Error: Azure Bastion tunnel failed to open on port 50022 within 60 seconds."
+              echo "Showing background jobs status:"
+              jobs
+              exit 1
+            fi
+            echo "Tunnel port is not ready yet. Retrying in 2 seconds... ($FOR_COUNT/30)"
+            sleep 2
+          done
+
+          echo "Success: Azure Bastion Tunnel established successfully on port 50022!"
         working-directory: ./my-project/02_compute
 
-      # 【変更】6-9, Ansibleの実行（トンネルポート 50022 経由で localhost に向けて実行）
-      - name: 6-9, Run Ansible Playbook via Bastion Tunnel
+      # 6-10, Ansibleの実行（Ansibleフォルダ内の完璧な設定をそのまま継承）
+      - name: 6-10, Run Ansible Playbook via Bastion Tunnel
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
             --extra-vars "ansible_host=127.0.0.1 \
                           ansible_port=50022 \
-                          ansible_user=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
-                          ansible_ssh_private_key_file=~/.ssh/id_rsa \
-                          ansible_ssh_extra_args='-o StrictHostKeyChecking=no' \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
                           mysql_root_password=rootpassword \
                           mysql_db_name=web_db \
