@@ -20,7 +20,7 @@ resource "azurerm_subnet" "frontend" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# バックエンド用
+# バックエンド用（ここにDockerホストとなるVMを安全に配置します）
 resource "azurerm_subnet" "backend" {
   name                 = "snet-backend-${local.resource_prefix}"
   resource_group_name  = azurerm_resource_group.rg.name
@@ -28,9 +28,9 @@ resource "azurerm_subnet" "backend" {
   address_prefixes     = ["10.0.2.0/24"]
 }
 
-# Bastion用（追加）
+# Bastion用
 resource "azurerm_subnet" "bastion" {
-  name                 = "AzureBastionSubnet"
+  name                 = "AzureBastionSubnet" # この名称はAzureの仕様上固定です
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.3.0/24"]
@@ -70,55 +70,31 @@ resource "azurerm_lb_backend_address_pool" "lb_backend_pool" {
   name            = "BackendPool-${local.resource_prefix}"
 }
 
-resource "azurerm_lb_probe" "lb_probe" {
-  loadbalancer_id = azurerm_lb.lb.id
-  name            = "http-running-probe"
-  port            = 8080
-  protocol        = "Tcp"
-}
-
+# ロードバランサーからVMへの死活監視（ヘルスチェック用）
 resource "azurerm_lb_probe" "lb_probe_80" {
   loadbalancer_id = azurerm_lb.lb.id
   name            = "http-running-probe-80"
-  port            = 80
+  port            = 80 # VMホスト（Docker Webコンテナ側）のポート
   protocol        = "Tcp"
 }
 
-# 負荷分散ルール
-resource "azurerm_lb_rule" "lb_rule" {
+# 負荷分散ルール（外部からの8080通信を、内部のWebコンテナの80へと綺麗に変換して流す）
+resource "azurerm_lb_rule" "lb_rule_8080" {
   loadbalancer_id                = azurerm_lb.lb.id
-  name                           = "LBRule-HTTP-8080"
+  name                           = "LBRule-HTTP-8080-to-80"
   protocol                       = "Tcp"
-  frontend_port                  = 8080
-  backend_port                   = 8080
-  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
-  probe_id                       = azurerm_lb_probe.lb_probe.id
-}
-
-resource "azurerm_lb_rule" "lb_rule_ssh" {
-  loadbalancer_id                = azurerm_lb.lb.id
-  name                           = "LBRule-SSH-22"
-  protocol                       = "Tcp"
-  frontend_port                  = 22
-  backend_port                   = 22
-  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
-  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
-}
-
-resource "azurerm_lb_rule" "lb_rule_80" {
-  loadbalancer_id                = azurerm_lb.lb.id
-  name                           = "LBRule-HTTP-80"
-  protocol                       = "Tcp"
-  frontend_port                  = 80
-  backend_port                   = 80
+  frontend_port                  = 8080                 # 外部公開ポート
+  backend_port                   = 80                   # VM内部のコンテナ待ち受けポート
   frontend_ip_configuration_name = "LoadBalancerFrontEnd"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
   probe_id                       = azurerm_lb_probe.lb_probe_80.id
 }
 
+# ★不要な「LBRule-SSH-22」および「LBRule-HTTP-80」は、
+# 管理用裏口を公開しないセキュリティ設計、およびポート集約の観点から物理的に削除しました。
+
 # ==========================================
-# 8. Azure Bastion の作成 (追加)
+# 8. Azure Bastion の作成
 # ==========================================
 resource "azurerm_public_ip" "pip_bastion" {
   name                = "pip-bastion-${local.resource_prefix}"
@@ -150,26 +126,15 @@ resource "azurerm_network_security_group" "nsg_frontend" {
   resource_group_name = azurerm_resource_group.rg.name
   tags                = local.common_tags
 
+  # インターネットからのWeb閲覧通信（8080）を許可
   security_rule {
-    name                       = "AllowHTTP80Inbound"
+    name                       = "AllowHTTP8080Inbound"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = "Internet"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "AllowHTTPS443Inbound"
-    priority                   = 110
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
+    destination_port_range     = "8080"
     source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
@@ -181,27 +146,29 @@ resource "azurerm_network_security_group" "nsg_backend" {
   resource_group_name = azurerm_resource_group.rg.name
   tags                = local.common_tags
 
+  # 【修正点①：通信疎通の確保】ロードバランサーからのヘルスチェック信号およびサービス通信（80）を許可
   security_rule {
-    name                       = "AllowAppFromFrontend"
+    name                       = "AllowHTTPFromLB"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = "8080"
-    source_address_prefix      = "10.0.1.0/24"
+    destination_port_range     = "80"
+    source_address_prefix      = "AzureLoadBalancer" # Azure公式のLB専用タグ
     destination_address_prefix = "*"
   }
 
+  # 【修正点②：大穴の閉鎖】SSH(22)は、インターネットからではなく「Bastionのサブネット」からのみ100%限定許可
   security_rule {
-    name                       = "AllowSSH"
+    name                       = "AllowSSHFromBastionOnly"
     priority                   = 110
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "22"
-    source_address_prefix      = "Internet"
+    source_address_prefix      = "10.0.3.0/24" # AzureBastionSubnet のセグメント
     destination_address_prefix = "*"
   }
 }
