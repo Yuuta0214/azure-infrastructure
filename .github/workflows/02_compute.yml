@@ -1,5 +1,5 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (修正版)
+# Azure Infrastructure Build Workflow (Bastionトンネル対応・完成版)
 ##########################################################################
 name: '02-compute-Deploy'
 
@@ -25,7 +25,6 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-      # ↓ 【追加】SSH公開鍵をSecretsからTerraform変数へ注入
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -81,7 +80,6 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-      # ↓ 【追加】Apply時にも同様に注入
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -122,20 +120,16 @@ jobs:
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
 
-      # 6-7, Ansible用の接続先IPを固定値でセット
-      # network層の出力を参照しに行かず、ここで完結させます
-      - name: 6-7, Get Public IP
-        id: get_ip
+      # 【変更】6-7, Bastionトンネルの確立に必要なVMのリソースIDをTerraformから取得
+      - name: 6-7, Get VM Info for Bastion Tunnel
+        id: get_vm_info
         run: |
-          # compute層の実行結果（data source経由）から最新IPを取得
-          # 失敗時に即座に検知できるようリトライ機能やエラーチェックを含めることも可能ですが、
-          # 基本は以下のように確実に変数を拾う形にします
-          PUBLIC_IP=$(terraform output -raw public_ip_address)
-          if [ -z "$PUBLIC_IP" ]; then
-            echo "Error: Public IP not found"
+          VM_ID=$(terraform output -raw vm_resource_id)
+          if [ -z "$VM_ID" ]; then
+            echo "Error: VM Resource ID not found"
             exit 1
           fi
-          echo "target_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+          echo "vm_id=$VM_ID" >> $GITHUB_OUTPUT
         working-directory: ./my-project/02_compute
 
       # 6-8, SSH秘密鍵のセットアップ
@@ -145,13 +139,30 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 6-9, Ansibleの実行
-      # ansible_hostをここで指定することで、inventory.iniのパースエラーを物理的に回避し、
-      # かつansible.cfgの設定を自動的に継承して実行します。
-      - name: 6-9, Run Ansible Playbook
+      # 【新設】6-8.5, Azure Bastion 経由のセキュアなSSHトンネルをバックグラウンドで確立
+      - name: 6-8-5, Create Azure Bastion SSH Tunnel
+        run: |
+          echo "Starting Azure Bastion Tunnel..."
+          az network bastion tunnel \
+            --name "bastion-web-${{ env.TARGET_ENV }}" \
+            --resource-group "rg-web-${{ env.TARGET_ENV }}" \
+            --target-resource-id "${{ steps.get_vm_info.outputs.vm_id }}" \
+            --resource-port 22 \
+            --port 50022 &
+          
+          echo "Waiting 15 seconds for tunnel to be established..."
+          sleep 15
+        working-directory: ./my-project/02_compute
+
+      # 【変更】6-9, Ansibleの実行（トンネルポート 50022 経由で localhost に向けて実行）
+      - name: 6-9, Run Ansible Playbook via Bastion Tunnel
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
-            --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
+            --extra-vars "ansible_host=127.0.0.1 \
+                          ansible_port=50022 \
+                          ansible_user=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
+                          ansible_ssh_private_key_file=~/.ssh/id_rsa \
+                          ansible_ssh_extra_args='-o StrictHostKeyChecking=no' \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
                           mysql_root_password=rootpassword \
                           mysql_db_name=web_db \
