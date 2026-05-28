@@ -83,15 +83,18 @@
 
     - name: "Deploy docker-compose files and nginx configs"
       ansible.builtin.template:
-        src: "./components/{{ item.src }}/{{ item.file }}.j2"
-        dest: "{{ project_root }}/components/{{ item.src }}/{{ item.dest }}"
+        # ディレクトリ構成に合わせてパスを条件分岐
+        src: "{{ './' + item.file + '.j2' if item.src == '' else './components/' + item.src + '/' + item.file + '.j2' }}"
+        dest: "{{ project_root }}/components/{{ item.src if item.src != '' else 'web' }}/{{ item.dest }}"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
+        mode: '0644'
       loop:
         - { src: "db", file: "docker-compose-db.yml", dest: "docker-compose.yml" }
         - { src: "app", file: "docker-compose-app.yml", dest: "docker-compose.yml" }
         - { src: "web", file: "docker-compose-web.yml", dest: "docker-compose.yml" }
-        - { src: "web", file: "nginx.conf", dest: "nginx.conf" }
+        # nginx.conf は Ansible 直下にあるため src: "" と定義
+        - { src: "", file: "nginx.conf", dest: "nginx.conf" }
 
     # ------------------------------------------
     # 5. コンテナ起動 (順序制御)
@@ -120,9 +123,9 @@
         remote_src: "{{ item.remote | default(false) }}"
       loop:
         - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote: true }
-        - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsecurity-rules.conf' }
-        - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsec/crs-setup.conf', remote: true }
-        
+        - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsecurity-rules.conf', remote: false }
+        - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsecurity-crs/crs-setup.conf', remote: true }
+
     - name: "Finalize Nginx"
       ansible.builtin.systemd: { name: nginx, state: started, enabled: yes }
 
