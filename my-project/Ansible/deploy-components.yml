@@ -6,6 +6,7 @@
   vars:
     admin_user: "{{ admin_username }}"
     project_root: "/home/{{ admin_username }}/app"
+    domain_name: "your-domain.com" # ※ここに取得したドメインを指定してください
 
   tasks:
     # ------------------------------------------
@@ -13,7 +14,7 @@
     # ------------------------------------------
     - name: "Update and install base system packages"
       ansible.builtin.apt:
-        name: [chrony, locales, nginx, libmodsecurity3, libnginx-mod-http-modsecurity, modsecurity-crs]
+        name: [chrony, locales, nginx, libmodsecurity3, libnginx-mod-http-modsecurity, modsecurity-crs, certbot, python3-certbot-nginx]
         state: present
         update_cache: yes
 
@@ -108,7 +109,6 @@
       ansible.builtin.command:
         cmd: "docker compose -f {{ project_root }}/components/{{ item }}/docker-compose.yml -p myapp up -d"
         chdir: "{{ project_root }}/components/{{ item }}"
-      # db -> app -> web の順で確実に実行されるようリストを明示
       loop: 
         - db
         - app
