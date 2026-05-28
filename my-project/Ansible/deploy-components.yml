@@ -106,11 +106,15 @@
     # ------------------------------------------
     - name: "Start Docker containers"
       ansible.builtin.command:
-        # VM上で生成された docker-compose.yml を指定して実行
         cmd: "docker compose -f {{ project_root }}/components/{{ item }}/docker-compose.yml -p myapp up -d"
-        # どのディレクトリで実行しても良いように -f でファイルをフルパス指定する
         chdir: "{{ project_root }}/components/{{ item }}"
-      loop: [db, app, web]
+      # db -> app -> web の順で確実に実行されるようリストを明示
+      loop: 
+        - db
+        - app
+        - web
+      register: compose_result
+      changed_when: "'Created' in compose_result.stdout or 'Running' in compose_result.stdout"
     
     # ------------------------------------------
     # 6. ホスト Nginx/ModSecurity 設定
