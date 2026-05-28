@@ -254,7 +254,7 @@
 
     - name: "Run docker compose up for Web"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"
+        cmd: "docker compose -p myapp up -d --remove-orphans"
         chdir: "{{ project_root }}/components/web"
       become: yes
 
