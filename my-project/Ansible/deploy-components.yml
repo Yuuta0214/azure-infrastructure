@@ -158,22 +158,6 @@
       become: yes
 
     # ------------------------------------------
-    # 【確実な解消対応】共通ネットワークの事前確保フェーズ
-    # ------------------------------------------
-    - name: "Ensure shared docker networks exist"
-      ansible.builtin.command:
-        cmd: "docker network create {{ item }}"
-      loop:
-        - frontend-nw
-        - backend-nw
-      become: yes
-      register: network_create
-      failed_when: 
-        - network_create.rc != 0
-        - "'already exists' not in network_create.stderr"
-      changed_when: "network_create.rc == 0"
-
-    # ------------------------------------------
     # 5. DBコンテナ配置・起動フェーズ (最優先)
     # ------------------------------------------
     - name: "Deploy docker-compose-db.yml from template"
@@ -191,7 +175,7 @@
 
     - name: "Run docker compose up for DB"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"
+        cmd: "docker compose -p myapp up -d --remove-orphans --force-recreate"
         chdir: "{{ project_root }}/components/db"
       become: yes
 
@@ -244,7 +228,7 @@
 
     - name: "Run docker compose up for App"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d"
+        cmd: "docker compose -p myapp up -d --remove-orphans --force-recreate"
         chdir: "{{ project_root }}/components/app"
       become: yes
 
