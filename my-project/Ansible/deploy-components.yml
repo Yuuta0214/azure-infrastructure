@@ -1,6 +1,6 @@
 - name: "Component-based Deployment of Web Service"
   hosts: all
-  gather_facts: yes
+  gather_facts: no  # ←ここを no に変更する
   become: yes
 
   vars:
