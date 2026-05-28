@@ -167,4 +167,5 @@ jobs:
 
       - name: 6-10, Cleanup Tunnel
         if: always()
-        run: pkill -f "az network bastion tunnel"
+        # || true を追加することで、pkill が失敗（プロセスなし）しても終了コード 0 を返します
+        run: pkill -f "az network bastion tunnel" || true
