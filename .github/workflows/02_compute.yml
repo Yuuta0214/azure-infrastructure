@@ -98,18 +98,28 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 6-4, Download Plan Artifact
+      - name: 6-4, Set Active Subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 6-5, Debug Azure Session
+        run: |
+          echo "Active Account Info:"
+          az account show --output json
+          echo "Available Subscriptions:"
+          az account list --output table
+
+      - name: 6-56, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-compute-artifacts
           path: ./my-project/02_compute
 
-      - name: 6-5, Setup Terraform
+      - name: 6-7, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
-      - name: 6-6, Terraform Init
+      - name: 6-8, Terraform Init
         run: |
           terraform init \
             -backend-config="resource_group_name=rg-web-dev-mgmt" \
@@ -118,12 +128,12 @@ jobs:
             -backend-config="key=compute.tfstate"
         working-directory: ./my-project/02_compute
 
-      - name: 6-7, Terraform Apply
+      - name: 6-9, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./my-project/02_compute
 
       # もともとの「Get LB Public IP」の枠組みの中で、Bastionトンネルを安全に起動させます
-      - name: 6-8, Get LB Public IP
+      - name: 6-10, Get LB Public IP
         run: |
           echo "Configuring Azure CLI..."
           az config set extension.use_dynamic_install=yes_without_prompt --local
@@ -148,14 +158,14 @@ jobs:
           exit 1
         working-directory: ./my-project/02_compute
 
-      - name: 6-9, Setup SSH Key
+      - name: 6-11, Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
       # 変数のみをローカルループバック（127.0.0.1）に修正
-      - name: 6-10, Run Ansible Playbook via LB NAT
+      - name: 6-12, Run Ansible Playbook via LB NAT
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
             -u ${{ secrets.TF_VAR_ADMIN_USERNAME }} \
@@ -168,7 +178,7 @@ jobs:
                           mysql_password=mypassword"
         working-directory: ./my-project/Ansible
 
-      - name: 6-11, Cleanup Tunnel
+      - name: 6-13, Cleanup Tunnel
         if: always()
         # || true を追加することで、pkill が失敗（プロセスなし）しても終了コード 0 を返します
         run: pkill -f "az network bastion tunnel" || true
