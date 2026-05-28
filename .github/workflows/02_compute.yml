@@ -155,6 +155,7 @@ jobs:
       - name: 6-9, Run Ansible Playbook via LB NAT
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
+            -u ${{ secrets.TF_VAR_ADMIN_USERNAME }} \
             --extra-vars "ansible_host=127.0.0.1 \
                           ansible_port=50022 \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
