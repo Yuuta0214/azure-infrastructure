@@ -102,13 +102,13 @@
         mode: '0644'
 
     # ------------------------------------------
-    # 5. コンテナ起動 (順序制御)
+    # 5. コンテナ起動 (ディレクトリ個別ではなく一括実行)
     # ------------------------------------------
     - name: "Start Docker containers"
       ansible.builtin.command:
+        # すべてのサービスを定義したルートまたは一括管理用のディレクトリで実行
         cmd: "docker compose -p myapp up -d"
-        chdir: "{{ project_root }}/components/{{ item }}"
-      loop: [db, app, web]
+        chdir: "{{ project_root }}/components" 
       register: compose_result
       changed_when: "'Created' in compose_result.stdout or 'Running' in compose_result.stdout"
 
