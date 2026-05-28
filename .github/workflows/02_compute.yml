@@ -163,3 +163,7 @@ jobs:
                           mysql_user=dbuser \
                           mysql_password=mypassword"
         working-directory: ./my-project/Ansible
+
+      - name: 6-10, Cleanup Tunnel
+        if: always()
+        run: pkill -f "az network bastion tunnel"

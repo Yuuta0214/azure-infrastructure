@@ -1,346 +1,126 @@
 - name: "Component-based Deployment of Web Service"
   hosts: all
-  gather_facts: no
+  gather_facts: yes
+  become: yes
 
   vars:
-    # Terraformから渡される admin_username を使用
     admin_user: "{{ admin_username }}"
     project_root: "/home/{{ admin_username }}/app"
-    # Docker公式リポジトリ設定用
-    docker_gpg_path: "/etc/apt/keyrings/docker.gpg"
-    docker_repo_url: "https://download.docker.com/linux/debian"
-
-    # --- 外部の実行引数(--extra-vars)から安全に値を受け取るための変数定義（完全復元） ---
-    mysql_root_password: "{{ mysql_root_password }}"
-    mysql_db_name: "{{ mysql_db_name }}"
-    mysql_user: "{{ mysql_user }}"
-    mysql_password: "{{ mysql_password }}"
 
   tasks:
     # ------------------------------------------
-    # 0. OS基本設定フェーズ (NTP, Locale, Update)
+    # 1. VM基盤およびミドルウェア構築
     # ------------------------------------------
-    - name: "Update all packages to latest version"
+    - name: "Update and install base system packages"
       ansible.builtin.apt:
-        upgrade: dist
+        name: [chrony, locales, nginx, libmodsecurity3, libnginx-mod-http-modsecurity, modsecurity-crs]
+        state: present
         update_cache: yes
-      become: yes
 
-    - name: "Install NTP/Timezone tools"
-      ansible.builtin.package:
-        name:
-          - chrony
-          - locales
-        state: present
-      become: yes
+    - name: "Apply OS settings (Timezone/Locale)"
+      community.general.timezone: { name: Asia/Tokyo }
+      community.general.locale_gen: { name: ja_JP.UTF-8, state: present }
 
-    - name: "Set timezone to Asia/Tokyo"
-      community.general.timezone:
-        name: Asia/Tokyo
-      become: yes
-
-    - name: "Ensure Japanese locale is generated"
-      community.general.locale_gen:
-        name: ja_JP.UTF-8
-        state: present
-      become: yes
-
-    - name: "Set system default locale"
-      ansible.builtin.command: localectl set-locale LANG=ja_JP.UTF-8
-      become: yes
-      changed_when: false
-
-    # ------------------------------------------
-    # 1. 同期・準備フェーズ (既存 site.yml から完全継承)
-    # ------------------------------------------
-    - name: "Wait for infrastructure bootstrap to complete"
-      ansible.builtin.wait_for:
-        path: /var/tmp/bootstrap_complete
-        state: present
-        timeout: 600
+    - name: "Wait for infrastructure bootstrap"
+      ansible.builtin.wait_for: { path: /var/tmp/bootstrap_complete, timeout: 600 }
       become: no
 
-    - name: "Gather facts after bootstrap confirmation"
-      ansible.builtin.setup:
-      become: yes
-
     # ------------------------------------------
-    # 2. Docker インストールフェーズ (既存 site.yml から完全継承)
+    # 2. Docker 環境構築
     # ------------------------------------------
-    - name: "Create directory for Docker GPG key"
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-      become: yes
-
     - name: "Add Docker's official GPG key"
       ansible.builtin.get_url:
         url: "https://download.docker.com/linux/debian/gpg"
         dest: "/etc/apt/keyrings/docker.asc"
         mode: '0644'
-      become: yes
 
-    - name: "Add Docker repository to Apt sources"
+    - name: "Add Docker repository"
       ansible.builtin.apt_repository:
-        repo: >
-          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/debian
-          {{ ansible_distribution_release }}
-          stable
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
         state: present
-        filename: docker
-      become: yes
 
     - name: "Install Docker Engine and Compose plugin"
       ansible.builtin.apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
         state: present
-        update_cache: yes
-      become: yes
 
-    - name: "Ensure Docker service is started and enabled"
-      ansible.builtin.systemd:
-        name: docker
-        state: started
-        enabled: yes
-      become: yes
+    - name: "Ensure Docker service is started"
+      ansible.builtin.systemd: { name: docker, state: started, enabled: yes }
 
     # ------------------------------------------
-    # 3. ポート競合自動回避フェーズ
+    # 3. ネットワーク先行構築
     # ------------------------------------------
-    - name: "Stop and remove all existing containers to free up port 80"
-      ansible.builtin.shell: |
-        containers=$(docker ps -q)
-        if [ -n "$containers" ]; then
-          docker rm -f $containers
-        fi
-      become: yes
-      changed_when: false
+    - name: "Ensure shared docker networks exist"
+      community.docker.docker_network:
+        name: "{{ item }}"
+        state: present
+      loop: [frontend-nw, backend-nw]
 
     # ------------------------------------------
-    # 4. ディレクトリ構造の配置・作成フェーズ (画像および新構成のファクト)
+    # 4. アプリケーション層 (Docker構成配置)
     # ------------------------------------------
-    - name: "Create component directories on remote VM"
+    - name: "Create component directories"
       ansible.builtin.file:
         path: "{{ project_root }}/components/{{ item }}"
         state: directory
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0755'
-      become: yes
-      loop:
-        - db
-        - app
-        - web
+      loop: [db, app, web]
 
-    - name: "Copy nginx.conf to project root"
-      ansible.builtin.copy:
-        src: "./nginx.conf"
-        dest: "{{ project_root }}/components/web/nginx.conf"
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0644'
-      become: yes
-
-    - name: "Copy html directory to project root"
+    - name: "Copy web static assets"
       ansible.builtin.copy:
         src: "./html"
         dest: "{{ project_root }}/components/web/"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0755'
-      become: yes
 
-    # ------------------------------------------
-    # 5. DBコンテナ配置・起動フェーズ (最優先)
-    # ------------------------------------------
-    - name: "Deploy docker-compose-db.yml from template"
+    - name: "Deploy docker-compose files and nginx configs"
       ansible.builtin.template:
-        src: "./components/db/docker-compose-db.yml.j2"
-        dest: "{{ project_root }}/components/db/docker-compose.yml"
+        src: "./components/{{ item.src }}/{{ item.file }}.j2"
+        dest: "{{ project_root }}/components/{{ item.src }}/{{ item.dest }}"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
-        mode: '0644'
-      become: yes
+      loop:
+        - { src: "db", file: "docker-compose-db.yml", dest: "docker-compose.yml" }
+        - { src: "app", file: "docker-compose-app.yml", dest: "docker-compose.yml" }
+        - { src: "web", file: "docker-compose-web.yml", dest: "docker-compose.yml" }
+        - { src: "web", file: "nginx.conf", dest: "nginx.conf" }
 
-    - name: "Remove existing DB container"
-      ansible.builtin.shell: "docker rm -f mysql-db || true"
-      become: yes
-
-    - name: "Run docker compose up for DB"
+    # ------------------------------------------
+    # 5. コンテナ起動 (順序制御)
+    # ------------------------------------------
+    - name: "Start Docker containers"
       ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d --remove-orphans --force-recreate"
-        chdir: "{{ project_root }}/components/db"
-      become: yes
+        cmd: "docker compose -p myapp up -d"
+        chdir: "{{ project_root }}/components/{{ item }}"
+      loop: [db, app, web]
+      register: compose_result
+      changed_when: "'Created' in compose_result.stdout or 'Running' in compose_result.stdout"
 
     # ------------------------------------------
-    # 6. DBヘルスチェック監視フェーズ
+    # 6. ホスト Nginx/ModSecurity 設定
     # ------------------------------------------
-    - name: "Wait for DB container to become healthy"
-      ansible.builtin.command:
-        cmd: "{% raw %}docker inspect --format='({{.State.Health.Status}})' mysql-db{% endraw %}"
-      register: db_health
-      until: db_health.stdout == "(healthy)"
-      retries: 12
-      delay: 5
-      become: yes
-      changed_when: false
-
-    # ------------------------------------------
-    # 7. App・Webコンテナ配置・起動フェーズ
-    # ------------------------------------------
-    - name: "Create app source directory on remote VM"
-      ansible.builtin.file:
-        path: "{{ project_root }}/components/app/app"
-        state: directory
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0755'
-      become: yes
-
-    - name: "Deploy docker-compose-app.yml from template"
-      ansible.builtin.template:
-        src: "./components/app/docker-compose-app.yml.j2"
-        dest: "{{ project_root }}/components/app/docker-compose.yml"
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0644'
-      become: yes
-
-    - name: "Deploy docker-compose-web.yml from template"
-      ansible.builtin.template:
-        src: "./components/web/docker-compose-web.yml.j2"
-        dest: "{{ project_root }}/components/web/docker-compose.yml"
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0644'
-      become: yes
-
-    - name: "Remove existing App container"
-      ansible.builtin.shell: "docker rm -f python-app || true"
-      become: yes
-
-    - name: "Run docker compose up for App"
-      ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d --remove-orphans --force-recreate"
-        chdir: "{{ project_root }}/components/app"
-      become: yes
-
-    - name: "Remove existing Web container"
-      ansible.builtin.shell: "docker rm -f nginx-web || true"
-      become: yes
-
-    - name: "Run docker compose up for Web"
-      ansible.builtin.command:
-        cmd: "docker compose -p myapp up -d --remove-orphans --force-recreate"
-        chdir: "{{ project_root }}/components/web"
-      become: yes
-
-    # ------------------------------------------
-    # 8. ホスト Nginx + ModSecurity 構築フェーズ
-    # ------------------------------------------
-    - name: "Install Nginx and ModSecurity components"
-      ansible.builtin.apt:
-        name:
-          - nginx
-          - libmodsecurity3
-          - libnginx-mod-http-modsecurity
-          - modsecurity-crs
-        state: present
-        update_cache: yes
-      become: yes
-
-    - name: "Configure Nginx as Reverse Proxy"
+    - name: "Configure Host Nginx and ModSecurity"
       ansible.builtin.template:
         src: "./nginx-host.conf.j2"
         dest: "/etc/nginx/sites-available/default"
-        mode: '0644'
-      become: yes
       notify: Restart Nginx
 
-    - name: "Create ModSecurity configuration directory"
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        mode: '0755'
-      loop:
-        - /etc/nginx/modsec
-        - /etc/nginx/modsec/rules
-      become: yes
-
-    - name: "Copy ModSecurity base config and mapping"
+    - name: "Copy ModSecurity files"
       ansible.builtin.copy:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
-        remote_src: "{{ item.remote_src | default(false) }}"
-        mode: '0644'
+        remote_src: "{{ item.remote | default(false) }}"
       loop:
-        - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote_src: true }
-        - { src: '/usr/share/nginx/docs/modsecurity/unicode.mapping', dest: '/etc/nginx/modsec/unicode.mapping', remote_src: true }
+        - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote: true }
         - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf' }
-      become: yes
+        - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsec/crs-setup.conf', remote: true }
 
-    - name: "Copy CRS rule and data files to /etc/nginx/modsec/rules/"
-      ansible.builtin.shell: "cp /usr/share/modsecurity-crs/rules/* /etc/nginx/modsec/rules/"
-      become: yes
-      changed_when: false
-      
-    - name: "Copy crs-setup.conf to /etc/nginx/modsec/"
-      ansible.builtin.copy:
-        src: "/etc/modsecurity/crs/crs-setup.conf"
-        dest: "/etc/nginx/modsec/crs-setup.conf"
-        remote_src: yes
-        mode: '0644'
-      become: yes
+    - name: "Finalize Nginx"
+      ansible.builtin.systemd: { name: nginx, state: started, enabled: yes }
 
-    # ⚠️ 【削除】Configure ModSecurity logging and engine タスクは丸ごと削除します。
-    # 代わりに設定ファイル（modsecurity-rules.conf）で一元管理します。
-
-    # 👈 ログの箱だけはシステム側に作っておく（権限は一般ユーザーまで広げて安全に）
-    - name: "Ensure ModSecurity audit log file is managed"
-      ansible.builtin.file:
-        path: /var/log/modsec_audit.log
-        state: touch
-        owner: www-data
-        group: www-data
-        mode: '0666'
-      become: yes
-
-    - name: "Test Nginx configuration syntax"
-      ansible.builtin.command: nginx -t
-      become: yes
-      changed_when: false
-
-    - name: "Ensure Nginx is started and enabled"
-      ansible.builtin.systemd:
-        name: nginx
-        state: started
-        enabled: yes
-      become: yes
-
-    # ------------------------------------------
-    # 9. 最終デプロイ検証フェーズ
-    # ------------------------------------------
-    - name: "Verify all running components"
-      ansible.builtin.command:
-        cmd: "docker ps"
-      become: yes
-      register: final_status
-      changed_when: false
-
-    - name: "Display running containers"
-      ansible.builtin.debug:
-        var: final_status.stdout_lines
-      
   handlers:
     - name: Restart Nginx
-      ansible.builtin.systemd:
-        name: nginx
-        state: restarted
-      become: yes
+      ansible.builtin.systemd: { name: nginx, state: restarted }
