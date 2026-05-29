@@ -173,7 +173,7 @@ resource "azurerm_network_security_group" "nsg_backend" {
   resource_group_name = azurerm_resource_group.rg.name
   tags                = local.common_tags
 
-  # 【修正点①：通信疎通の確保】ロードバランサーからのヘルスチェック信号およびサービス通信（80）を許可
+  # 【修正点①：通信疎通の確保】ロードバランサーからのヘルスチェック信号（168.63.129.16 等）を許可
   security_rule {
     name                       = "AllowHTTPFromLB"
     priority                   = 100
@@ -183,6 +183,19 @@ resource "azurerm_network_security_group" "nsg_backend" {
     source_port_range          = "*"
     destination_port_range     = "80"
     source_address_prefix      = "AzureLoadBalancer" # Azure公式のLB専用タグ
+    destination_address_prefix = "*"
+  }
+
+  # 【修正点①-2：LB経由の実通信】Standard LB は送信元IPを保持するため、クライアント(Internet)からの 80 も許可が必要
+  security_rule {
+    name                       = "AllowHTTP80FromInternet"
+    priority                   = 105
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
 

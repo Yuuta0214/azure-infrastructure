@@ -125,6 +125,12 @@
         dest: "/etc/nginx/sites-available/default"
       notify: Restart Nginx
 
+    - name: "Ensure ModSecurity config directory exists"
+      ansible.builtin.file:
+        path: /etc/nginx/modsec
+        state: directory
+        mode: '0755'
+
     - name: "Copy ModSecurity files"
       ansible.builtin.copy:
         src: "{{ item.src }}"
@@ -136,6 +142,10 @@
         - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsec/crs-setup.conf', remote: true }
 
     - name: "Finalize Nginx"
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: "Ensure Nginx service is running"
       ansible.builtin.systemd: { name: nginx, state: started, enabled: yes }
 
   handlers:
