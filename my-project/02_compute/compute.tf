@@ -27,22 +27,19 @@ data "azurerm_lb_backend_address_pool" "target" {
   loadbalancer_id = data.azurerm_lb.existing.id
 }
 
-# 5. 実機のインバウンドNAT規則（SSH）情報を取得
-data "azurerm_lb_nat_rule" "ssh" {
-  name                = "SSH-Inbound-NAT-50022" # 01_network/network.tf と一致
-  loadbalancer_id     = data.azurerm_lb.existing.id
-  resource_group_name = var.resource_group_name
-}
-
 # ==========================================
 # 0. 共通定義 (Locals)
 # ==========================================
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
-  
-  target_subnet_id   = data.azurerm_subnet.target.id
-  target_be_pool_id  = data.azurerm_lb_backend_address_pool.target.id
-  target_nat_rule_id = data.azurerm_lb_nat_rule.ssh.id
+
+  # 01_network/network.tf の azurerm_lb_nat_rule.lb_nat_ssh.name と一致
+  lb_nat_rule_name = "SSH-Inbound-NAT-50022"
+
+  target_subnet_id  = data.azurerm_subnet.target.id
+  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
+  # azurerm 3.x には lb_nat_rule の data source がないため、LB ID から ARM 形式で組み立てる
+  target_nat_rule_id = "${data.azurerm_lb.existing.id}/inboundNatRules/${local.lb_nat_rule_name}"
 
   common_tags = merge(var.tags, {
     Environment = var.environment
