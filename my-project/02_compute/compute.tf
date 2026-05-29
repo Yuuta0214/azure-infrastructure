@@ -27,14 +27,22 @@ data "azurerm_lb_backend_address_pool" "target" {
   loadbalancer_id = data.azurerm_lb.existing.id
 }
 
+# 5. 実機のインバウンドNAT規則（SSH）情報を取得
+data "azurerm_lb_nat_rule" "ssh" {
+  name                = "SSH-Inbound-NAT-50022" # 01_network/network.tf と一致
+  loadbalancer_id     = data.azurerm_lb.existing.id
+  resource_group_name = var.resource_group_name
+}
+
 # ==========================================
 # 0. 共通定義 (Locals)
 # ==========================================
 locals {
   resource_prefix = "${var.project_name}-${var.environment}"
   
-  target_subnet_id  = data.azurerm_subnet.target.id
-  target_be_pool_id = data.azurerm_lb_backend_address_pool.target.id
+  target_subnet_id   = data.azurerm_subnet.target.id
+  target_be_pool_id  = data.azurerm_lb_backend_address_pool.target.id
+  target_nat_rule_id = data.azurerm_lb_nat_rule.ssh.id
 
   common_tags = merge(var.tags, {
     Environment = var.environment
@@ -68,6 +76,15 @@ resource "azurerm_network_interface_backend_address_pool_association" "nic_assoc
   network_interface_id    = azurerm_network_interface.nic.id
   ip_configuration_name   = "internal"
   backend_address_pool_id = local.target_be_pool_id
+}
+
+# ==========================================
+# 11-2. NICとLBインバウンドNAT規則（SSH）の紐付け
+# ==========================================
+resource "azurerm_network_interface_nat_rule_association" "ssh_nat" {
+  network_interface_id  = azurerm_network_interface.nic.id
+  ip_configuration_name = "internal"
+  nat_rule_id           = local.target_nat_rule_id
 }
 
 # ==========================================
