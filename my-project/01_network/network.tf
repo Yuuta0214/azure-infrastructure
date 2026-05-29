@@ -88,6 +88,8 @@ resource "azurerm_lb_rule" "lb_rule_8080" {
   frontend_ip_configuration_name = "LoadBalancerFrontEnd"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.lb_backend_pool.id]
   probe_id                       = azurerm_lb_probe.lb_probe_80.id
+  # Outbound Rule と同一 Frontend IP を共有する場合、Azure の要件で SNAT 無効化が必須
+  disable_outbound_snat          = true
 }
 
 resource "azurerm_lb_nat_rule" "lb_nat_ssh" {
