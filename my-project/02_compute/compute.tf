@@ -95,7 +95,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   admin_username      = var.admin_username
 
   # パスワード認証およびSSH公開鍵の併用
-  disable_password_authentication = false
+  disable_password_authentication = true
   admin_password                  = var.admin_password
 
   admin_ssh_key {

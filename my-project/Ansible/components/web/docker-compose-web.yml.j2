@@ -9,7 +9,7 @@ services:
     container_name: nginx-web
     restart: unless-stopped
     # 権限問題を根本解決するために root で実行します
-    user: "0:0"
+    user: "82:82" # nginx ユーザーとグループのUID/GID (Nginx公式イメージのデフォルト)
     deploy:
       resources:
         limits:
