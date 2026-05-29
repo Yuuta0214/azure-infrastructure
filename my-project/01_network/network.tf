@@ -100,6 +100,19 @@ resource "azurerm_lb_nat_rule" "lb_nat_ssh" {
   frontend_ip_configuration_name = "LoadBalancerFrontEnd"
 }
 
+# --- Outbound ---
+resource "azurerm_lb_outbound_rule" "outbound_rule" {
+  name                    = "outbound-rule-web"
+  loadbalancer_id         = azurerm_lb.lb.id
+  protocol                = "All"
+  allocated_outbound_ports = 1024
+
+  frontend_ip_configuration {
+    name = "LoadBalancerFrontEnd"
+  }
+
+  backend_address_pool_id = azurerm_lb_backend_address_pool.lb_backend_pool.id
+}
 # 【重要】また、VMのネットワークインターフェース（NIC）の定義側（compute.tf等）で、
 # このインバウンドNAT規則（azurerm_lb_nat_rule.lb_nat_ssh.id）を関連付ける必要があります。
 # ★不要な「LBRule-SSH-22」および「LBRule-HTTP-80」は、
