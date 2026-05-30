@@ -1,5 +1,5 @@
 ##########################################################################
-# Azure Infrastructure Build Workflow (修正版)
+# Azure Infrastructure Build Workflow (Bastionトンネル対応・完成版)
 ##########################################################################
 name: '02-compute-Deploy'
 
@@ -25,7 +25,6 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-      # ↓ 【追加】SSH公開鍵をSecretsからTerraform変数へ注入
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -49,21 +48,19 @@ jobs:
       - name: 5-4, Terraform Init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=compute.tfstate"
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 5-5, Terraform Plan
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute/tfplan-compute
+          path: ./infrastructure/02_compute/tfplan-compute
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)
@@ -81,7 +78,6 @@ jobs:
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
-      # ↓ 【追加】Apply時にも同様に注入
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
       TF_VAR_resource_group_name: "rg-web-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -89,72 +85,96 @@ jobs:
     steps:
       - name: 6-1, Checkout Code
         uses: actions/checkout@v4
+      
+      - name: 6-2, Clear Azure CLI cache
+        run: az account clear
 
-      - name: 6-2, Azure Login (OIDC)
+      - name: 6-3, Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 6-3, Download Plan Artifact
+      - name: 6-4, Set Active Subscription
+        run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 6-5, Debug Azure Session
+        run: |
+          echo "Active Account Info:"
+          az account show --output json
+          echo "Available Subscriptions:"
+          az account list --output table
+
+      - name: 6-56, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute
+          path: ./infrastructure/02_compute
 
-      - name: 6-4, Setup Terraform
+      - name: 6-7, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
-      - name: 6-5, Terraform Init
+      - name: 6-8, Terraform Init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=compute.tfstate"
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
-      # 6-6, Terraform Apply (compute層のVM作成)
-      - name: 6-6, Terraform Apply
+      - name: 6-9, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
-      # 6-7, Ansible用の接続先IPを固定値でセット
-      # network層の出力を参照しに行かず、ここで完結させます
-      - name: 6-7, Get Public IP
-        id: get_ip
+      # もともとの「Get LB Public IP」の枠組みの中で、Bastionトンネルを安全に起動させます
+      - name: 6-10, Get LB Public IP
         run: |
-          # compute層の実行結果（data source経由）から最新IPを取得
-          # 失敗時に即座に検知できるようリトライ機能やエラーチェックを含めることも可能ですが、
-          # 基本は以下のように確実に変数を拾う形にします
-          PUBLIC_IP=$(terraform output -raw public_ip_address)
-          if [ -z "$PUBLIC_IP" ]; then
-            echo "Error: Public IP not found"
-            exit 1
-          fi
-          echo "target_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
-        working-directory: ./my-project/02_compute
+          echo "Configuring Azure CLI..."
+          az config set extension.use_dynamic_install=yes_without_prompt --local
+          
+          echo "Starting Azure Bastion Tunnel..."
+          az network bastion tunnel \
+            --name "bastion-web-${{ env.TARGET_ENV }}" \
+            --resource-group "rg-web-${{ env.TARGET_ENV }}" \
+            --target-resource-id "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-web-${{ env.TARGET_ENV }}/providers/Microsoft.Compute/virtualMachines/vm-web-${{ env.TARGET_ENV }}" \
+            --resource-port 22 \
+            --port 50022 &
+          
+          echo "Waiting for tunnel port 50022..."
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 50022; then
+              echo "Tunnel established successfully."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timeout: Failed to open tunnel."
+          exit 1
+        working-directory: ./infrastructure/02_compute
 
-      # 6-8, SSH秘密鍵のセットアップ
-      - name: 6-8, Setup SSH Key
+      - name: 6-11, Setup SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      # 6-9, Ansibleの実行
-      # ansible_hostをここで指定することで、inventory.iniのパースエラーを物理的に回避し、
-      # かつansible.cfgの設定を自動的に継承して実行します。
-      - name: 6-9, Run Ansible Playbook
+      # 変数のみをローカルループバック（127.0.0.1）に修正
+      - name: 6-12, Run Ansible Playbook via LB NAT
         run: |
           ansible-playbook -i inventory.ini deploy-components.yml \
-            --extra-vars "ansible_host=${{ steps.get_ip.outputs.target_ip }} \
+            -u ${{ secrets.TF_VAR_ADMIN_USERNAME }} \
+            --extra-vars "ansible_host=127.0.0.1 \
+                          ansible_port=50022 \
                           admin_username=${{ secrets.TF_VAR_ADMIN_USERNAME }} \
                           mysql_root_password=rootpassword \
                           mysql_db_name=web_db \
                           mysql_user=dbuser \
                           mysql_password=mypassword"
-        working-directory: ./my-project/Ansible
+        working-directory: ./config-management
+
+      - name: 6-13, Cleanup Tunnel
+        if: always()
+        # || true を追加することで、pkill が失敗（プロセスなし）しても終了コード 0 を返します
+        run: pkill -f "az network bastion tunnel" || true

@@ -9,7 +9,7 @@ services:
     container_name: nginx-web
     restart: unless-stopped
     # 権限問題を根本解決するために root で実行します
-    user: "0:0"
+    user: "82:82" # nginx ユーザーとグループのUID/GID (Nginx公式イメージのデフォルト)
     deploy:
       resources:
         limits:
@@ -19,9 +19,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-# ホスト(VM)の 80 ポートへのアクセスを、コンテナの 80 ポートへ転送 
+# ホスト側でリバースプロキシ(Nginx)を動かす場合、
+# コンテナポートを直接公開せず内部通信のみにするのが最も安全です。
+# 外部連携が必要な場合は ports を維持してください。
     ports:
-      - "127.0.0.1:8080:80"
+      - "8080:80"
       
 # 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります 
 # :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止 

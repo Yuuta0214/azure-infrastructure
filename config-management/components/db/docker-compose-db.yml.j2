@@ -17,8 +17,8 @@ services:
       MYSQL_DATABASE: "{{ mysql_db_name }}"
       MYSQL_USER: "{{ mysql_user }}"
       MYSQL_PASSWORD: "{{ mysql_password }}"
+    # ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント
     volumes:
-      # ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント
       - db_data:/var/lib/mysql
     networks:
       - backend-nw
@@ -41,6 +41,4 @@ networks:
 {# ボリューム定義 (データの永続化)            -#}
 {# ========================================== -#}
 volumes:
-  # MySQL のデータを VM が再起動・コンテナ破棄されても保持するための領域
   db_data:
-    driver: local

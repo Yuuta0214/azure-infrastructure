@@ -1,0 +1,153 @@
+- name: "Component-based Deployment of Web Service"
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  vars:
+    admin_user: "{{ admin_username }}"
+    project_root: "/home/{{ admin_username }}/app"
+    domain_name: "your-domain.com" # ※ここに取得したドメインを指定してください
+
+  tasks:
+    # ------------------------------------------
+    # 1. VM基盤およびミドルウェア構築
+    # ------------------------------------------
+    - name: "Update and install base system packages"
+      ansible.builtin.apt:
+        name: [chrony, locales, nginx, libmodsecurity3, libnginx-mod-http-modsecurity, modsecurity-crs, certbot, python3-certbot-nginx]
+        state: present
+        update_cache: yes
+
+    - name: "Set Timezone"
+      community.general.timezone:
+        name: Asia/Tokyo
+
+    - name: "Set Locale"
+      community.general.locale_gen:
+        name: ja_JP.UTF-8
+        state: present
+
+    - name: "Wait for infrastructure bootstrap"
+      ansible.builtin.wait_for: { path: /var/tmp/bootstrap_complete, timeout: 600 }
+      become: no
+
+    # ------------------------------------------
+    # 2. Docker 環境構築
+    # ------------------------------------------
+    - name: "Add Docker's official GPG key"
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/debian/gpg"
+        dest: "/etc/apt/keyrings/docker.asc"
+        mode: '0644'
+
+    - name: "Add Docker repository"
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: "Install Docker Engine and Compose plugin"
+      ansible.builtin.apt:
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+        state: present
+
+    - name: "Ensure Docker service is started"
+      ansible.builtin.systemd: { name: docker, state: started, enabled: yes }
+
+    # ------------------------------------------
+    # 3. ネットワーク先行構築
+    # ------------------------------------------
+    - name: "Ensure shared docker networks exist"
+      community.docker.docker_network:
+        name: "{{ item }}"
+        state: present
+      loop: [frontend-nw, backend-nw]
+
+    # ------------------------------------------
+    # 4. アプリケーション層 (Docker構成配置)
+    # ------------------------------------------
+    - name: "Create component directories"
+      ansible.builtin.file:
+        path: "{{ project_root }}/components/{{ item }}"
+        state: directory
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+      loop: [db, app, web]
+
+    - name: "Copy web static assets"
+      ansible.builtin.copy:
+        src: "./html"
+        dest: "{{ project_root }}/components/web/"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+
+    - name: "Deploy docker-compose files"
+      ansible.builtin.template:
+        src: "./components/{{ item.src }}/{{ item.file }}.j2"
+        dest: "{{ project_root }}/components/{{ item.src }}/docker-compose.yml"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+      loop:
+        - { src: "db", file: "docker-compose-db.yml" }
+        - { src: "app", file: "docker-compose-app.yml" }
+        - { src: "web", file: "docker-compose-web.yml" }
+
+    - name: "Deploy nginx.conf"
+      ansible.builtin.copy:
+        src: "./nginx.conf"
+        dest: "{{ project_root }}/components/web/nginx.conf"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+
+    # ------------------------------------------
+    # 5. コンテナ起動 (ディレクトリ個別ではなく一括実行)
+    # ------------------------------------------
+    - name: "Start Docker containers"
+      ansible.builtin.command:
+        cmd: "docker compose -f {{ project_root }}/components/{{ item }}/docker-compose.yml -p myapp up -d"
+        chdir: "{{ project_root }}/components/{{ item }}"
+      loop: 
+        - db
+        - app
+        - web
+      register: compose_result
+      changed_when: "'Created' in compose_result.stdout or 'Running' in compose_result.stdout"
+    
+    # ------------------------------------------
+    # 6. ホスト Nginx/ModSecurity 設定
+    # ------------------------------------------
+    - name: "Configure Host Nginx and ModSecurity"
+      ansible.builtin.template:
+        src: "./nginx-host.conf.j2"
+        dest: "/etc/nginx/sites-available/default"
+      notify: Restart Nginx
+
+    - name: "Ensure ModSecurity config directory exists"
+      ansible.builtin.file:
+        path: /etc/nginx/modsec
+        state: directory
+        mode: '0755'
+
+    - name: "Copy ModSecurity files"
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        remote_src: "{{ item.remote | default(false) }}"
+      loop:
+        - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote: true }
+        - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsecurity-rules.conf', remote: false }
+        - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsec/crs-setup.conf', remote: true }
+
+    - name: "Finalize Nginx"
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: "Ensure Nginx service is running"
+      ansible.builtin.systemd: { name: nginx, state: started, enabled: yes }
+
+  handlers:
+    - name: Restart Nginx
+      ansible.builtin.systemd: { name: nginx, state: restarted }

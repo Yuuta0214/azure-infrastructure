@@ -1,0 +1,2 @@
+# 全ホスト共通変数（将来の playbooks 分割・group_vars 利用用）
+# 現行 deploy-components.yml は extra-vars / playbook vars をそのまま使用

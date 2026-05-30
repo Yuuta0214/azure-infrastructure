@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # ※ ユーザー様の意図に基づき、terraform-plan-backend および terraform-apply-backend は
-  # 01_network.yml からは除外し、networkのJobのみを維持します。
+  # infra-01-network.yml からは除外し、networkのJobのみを維持します。
 
   # =============================================================
   # 3. Plan & Check (01_network 層)
@@ -51,23 +51,21 @@ jobs:
         id: init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=network.tfstate"
-        working-directory: ./my-project/01_network
+        working-directory: ./infrastructure/01_network
 
       - name: 3-5, Terraform Plan
         id: plan
-        # セキュリティと整合性のため、00_backend配下の共通変数ファイルを参照します
-        run: terraform plan -var-file="../00_backend/env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan
-        working-directory: ./my-project/01_network
+        # セキュリティと整合性のため、shared/config/env の共通変数ファイルを参照します
+        run: terraform plan -var-file="../../shared/config/env/${{ env.TARGET_ENV }}.tfvars" -out=tfplan
+        working-directory: ./infrastructure/01_network
 
       - name: 3-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-network-artifacts
-          path: ./my-project/01_network/tfplan
+          path: ./infrastructure/01_network/tfplan
 
   # =============================================================
   # 4. Apply & Deploy (01_network 層)
@@ -99,7 +97,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-network-artifacts
-          path: ./my-project/01_network
+          path: ./infrastructure/01_network
 
       - name: 4-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -109,12 +107,10 @@ jobs:
       - name: 4-5, Terraform Init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=network.tfstate"
-        working-directory: ./my-project/01_network
+        working-directory: ./infrastructure/01_network
 
       - name: 4-6, Terraform Apply
         run: terraform apply -auto-approve tfplan
-        working-directory: ./my-project/01_network
+        working-directory: ./infrastructure/01_network
