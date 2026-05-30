@@ -147,6 +147,12 @@
         - src: '/etc/modsecurity/crs/crs-setup.conf'
           dest: '/etc/nginx/modsec/crs-setup.conf'
           remote: true
+    
+    - name: "Ensure CRS rule directory exists"
+      ansible.builtin.file:
+        path: /etc/nginx/modsec/crs/rules
+        state: directory
+        mode: '0755'
 
     - name: "Finalize Nginx"
       ansible.builtin.command: nginx -t
