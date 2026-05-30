@@ -1,4 +1,5 @@
-- name: "Component-based Deployment of Web Service"
+# 修正適用: unicode.mapping のコピーを追加
+new_content = """- name: "Component-based Deployment of Web Service"
   hosts: all
   gather_facts: yes
   become: yes
@@ -6,7 +7,7 @@
   vars:
     admin_user: "{{ admin_username }}"
     project_root: "/home/{{ admin_username }}/app"
-    domain_name: "your-domain.com" # ※ここに取得したドメインを指定してください
+    domain_name: "your-domain.com"
 
   tasks:
     # ------------------------------------------
@@ -30,7 +31,7 @@
     - name: "Wait for infrastructure bootstrap"
       ansible.builtin.wait_for: { path: /var/tmp/bootstrap_complete, timeout: 600 }
       become: no
-
+      
     # ------------------------------------------
     # 2. Docker 環境構築
     # ------------------------------------------
@@ -52,7 +53,7 @@
 
     - name: "Ensure Docker service is started"
       ansible.builtin.systemd: { name: docker, state: started, enabled: yes }
-
+      
     # ------------------------------------------
     # 3. ネットワーク先行構築
     # ------------------------------------------
@@ -137,9 +138,18 @@
         dest: "{{ item.dest }}"
         remote_src: "{{ item.remote | default(false) }}"
       loop:
-        - { src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf', dest: '/etc/nginx/modsec/modsecurity.conf', remote: true }
-        - { src: './modsecurity-rules.conf', dest: '/etc/nginx/modsec/modsecurity-rules.conf', remote: false }
-        - { src: '/etc/modsecurity/crs/crs-setup.conf', dest: '/etc/nginx/modsec/crs-setup.conf', remote: true }
+        - src: '/usr/share/nginx/docs/modsecurity/modsecurity.conf'
+          dest: '/etc/nginx/modsec/modsecurity.conf'
+          remote: true
+        - src: '/usr/share/nginx/docs/modsecurity/unicode.mapping'
+          dest: '/etc/nginx/modsec/unicode.mapping'
+          remote: true
+        - src: './modsecurity-rules.conf'
+          dest: '/etc/nginx/modsec/modsecurity-rules.conf'
+          remote: false
+        - src: '/etc/modsecurity/crs/crs-setup.conf'
+          dest: '/etc/nginx/modsec/crs-setup.conf'
+          remote: true
 
     - name: "Finalize Nginx"
       ansible.builtin.command: nginx -t
@@ -150,4 +160,6 @@
 
   handlers:
     - name: Restart Nginx
-      ansible.builtin.systemd: { name: nginx, state: restarted }
+      ansible.builtin.systemd: { name: nginx, state: restarted }"""
+
+default_api.create_new_file(filepath="config-management/deploy-components.yml", contents=new_content)
