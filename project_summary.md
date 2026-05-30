@@ -56,6 +56,7 @@ azure-infrastructure-project/
     ├── html/
     │   └── index.html
     ├── modsecurity-rules.conf
+    ├── nginx-container.conf
     ├── nginx-host.conf.j2
     └── nginx.conf
 
