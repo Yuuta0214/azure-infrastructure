@@ -146,7 +146,15 @@
         - src: '/etc/modsecurity/crs/crs-setup.conf'
           dest: '/etc/nginx/modsec/crs-setup.conf'
           remote: true
-    
+
+    - name: "Deploy nginx-container.conf"
+      ansible.builtin.copy:
+        src: "./nginx-container.conf"
+        dest: "{{ project_root }}/components/web/nginx-container.conf"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+        
     - name: "Ensure CRS rule directory exists"
       ansible.builtin.file:
         path: /etc/nginx/modsec/crs/rules
