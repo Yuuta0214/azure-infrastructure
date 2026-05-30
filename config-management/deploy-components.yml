@@ -143,7 +143,6 @@
         - src: './modsecurity-rules.conf'
           dest: '/etc/nginx/modsec/modsecurity-rules.conf'
           remote: false
-        # ここを今回見つかった正しいパスに修正しました
         - src: '/etc/modsecurity/crs/crs-setup.conf'
           dest: '/etc/nginx/modsec/crs-setup.conf'
           remote: true
