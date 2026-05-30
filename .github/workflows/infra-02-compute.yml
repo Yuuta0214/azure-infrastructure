@@ -48,21 +48,19 @@ jobs:
       - name: 5-4, Terraform Init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=compute.tfstate"
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 5-5, Terraform Plan
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute/tfplan-compute
+          path: ./infrastructure/02_compute/tfplan-compute
 
   # =============================================================
   # 6. Apply & Deploy (02_compute 層)
@@ -112,7 +110,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-compute-artifacts
-          path: ./my-project/02_compute
+          path: ./infrastructure/02_compute
 
       - name: 6-7, Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -122,15 +120,13 @@ jobs:
       - name: 6-8, Terraform Init
         run: |
           terraform init \
-            -backend-config="resource_group_name=rg-web-dev-mgmt" \
-            -backend-config="storage_account_name=stwebdevbackend" \
-            -backend-config="container_name=tfstate" \
+            -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=compute.tfstate"
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 6-9, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       # もともとの「Get LB Public IP」の枠組みの中で、Bastionトンネルを安全に起動させます
       - name: 6-10, Get LB Public IP
@@ -156,7 +152,7 @@ jobs:
           done
           echo "Timeout: Failed to open tunnel."
           exit 1
-        working-directory: ./my-project/02_compute
+        working-directory: ./infrastructure/02_compute
 
       - name: 6-11, Setup SSH Key
         run: |
@@ -176,7 +172,7 @@ jobs:
                           mysql_db_name=web_db \
                           mysql_user=dbuser \
                           mysql_password=mypassword"
-        working-directory: ./my-project/Ansible
+        working-directory: ./config-management
 
       - name: 6-13, Cleanup Tunnel
         if: always()

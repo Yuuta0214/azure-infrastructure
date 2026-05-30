@@ -2,7 +2,7 @@
 # 00_Backend Deployment Workflow
 ##########################################################################
 # 目的: Terraform State保存用のストレージ基盤のみをデプロイする
-# 特徴: 00_backendディレクトリ専用、OIDC認証、本番環境への手動承認
+# 特徴: infrastructure/00_backend、OIDC認証、本番環境への手動承認
 ##########################################################################
 name: 00-Backend-Deploy
 
@@ -45,20 +45,20 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 1-4, Terraform Init
-        working-directory: ./my-project/00_backend
+        working-directory: ./infrastructure/00_backend
         run: terraform init
 
       - name: 1-5, Terraform Plan
-        working-directory: ./my-project/00_backend
+        working-directory: ./infrastructure/00_backend
         run: |
-          terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -var="project_name=web" -out=tfplan-backend
+          terraform plan -var-file="../../shared/config/env/${{ env.TARGET_ENV }}.tfvars" -var="project_name=web" -out=tfplan-backend
 
       # 2回目以降の冪等性を守るため、プラン結果を一時保存
       - name: 1-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-backend-artifacts
-          path: ./my-project/00_backend/tfplan-backend
+          path: ./infrastructure/00_backend/tfplan-backend
 
   # =============================================================
   # 2. Apply & Deploy (00_backend 層)
@@ -91,7 +91,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan-backend-artifacts
-          path: ./my-project/00_backend
+          path: ./infrastructure/00_backend
 
       - name: 2-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -99,9 +99,9 @@ jobs:
           terraform_version: "1.7.0"
 
       - name: 2-5, Terraform Init
-        working-directory: ./my-project/00_backend
+        working-directory: ./infrastructure/00_backend
         run: terraform init
 
       - name: 2-6, Terraform Apply
-        working-directory: ./my-project/00_backend
+        working-directory: ./infrastructure/00_backend
         run: terraform apply -auto-approve tfplan-backend
