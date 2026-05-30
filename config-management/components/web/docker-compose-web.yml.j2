@@ -9,7 +9,7 @@ services:
     container_name: nginx-web
     restart: unless-stopped
     # 権限問題を根本解決するために root で実行します
-    user: "82:82" # nginx ユーザーとグループのUID/GID (Nginx公式イメージのデフォルト)
+    user: "0:0"
     deploy:
       resources:
         limits:
@@ -27,9 +27,9 @@ services:
       
 # 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります 
 # :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止 
-    volumes:
+        volumes:
       # 【重要】マウント先を default.conf に戻します
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
       - ./html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
