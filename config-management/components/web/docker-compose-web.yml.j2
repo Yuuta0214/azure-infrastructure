@@ -1,14 +1,10 @@
 version: '3.8'
 
 services:
-# ------------------------------------------ 
-# 3. Web層: Nginx (リバースプロキシ)          
-# ------------------------------------------ 
   web:
     image: nginx:stable-alpine
     container_name: nginx-web
     restart: unless-stopped
-    # 権限問題を根本解決するために root で実行します
     user: "0:0"
     deploy:
       resources:
@@ -19,25 +15,14 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-# ホスト側でリバースプロキシ(Nginx)を動かす場合、
-# コンテナポートを直接公開せず内部通信のみにするのが最も安全です。
-# 外部連携が必要な場合は ports を維持してください。
     ports:
       - "8080:80"
-      
-# 【重要】これらのファイルは Ansible のタスク等で事前に配置されている必要があります 
-# :ro (Read-Only) を付与し、コンテナ側からの破壊的な書き換えを防止 
-        volumes:
-      # 【重要】マウント先を default.conf に戻します
+    volumes:
       - ./nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
       - ./html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
 
-# ========================================== 
-# ネットワーク定義                           
-# ========================================== 
 networks:
-# 外部（ALB）からのトラフィックを受けるためのブリッジネットワーク 
   frontend-nw:
     external: true
