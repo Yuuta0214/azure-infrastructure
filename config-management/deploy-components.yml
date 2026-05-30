@@ -102,6 +102,14 @@
         group: "{{ admin_user }}"
         mode: '0644'
 
+    - name: "Create a test index for App container"
+      ansible.builtin.copy:
+        content: "Hello from Python App API"
+        dest: "{{ project_root }}/components/app/index.html"
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+
     # ------------------------------------------
     # 5. コンテナ起動
     # ------------------------------------------
@@ -154,7 +162,7 @@
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
-        
+
     - name: "Ensure CRS rule directory exists"
       ansible.builtin.file:
         path: /etc/nginx/modsec/crs/rules
