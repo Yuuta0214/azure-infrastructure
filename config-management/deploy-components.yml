@@ -93,10 +93,10 @@
         - { src: "app", file: "docker-compose-app.yml" }
         - { src: "web", file: "docker-compose-web.yml" }
 
-    - name: "Deploy nginx.conf"
+    - name: "Deploy nginx-container.conf"
       ansible.builtin.copy:
-        src: "./nginx.conf"
-        dest: "{{ project_root }}/components/web/nginx.conf"
+        src: "./nginx-container.conf" # 既存のnginx.confから変更
+        dest: "{{ project_root }}/components/web/nginx-container.conf" # 修正
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
@@ -148,4 +148,6 @@
 
   handlers:
     - name: Restart Nginx
-      ansible.builtin.systemd: { name: nginx, state: restarted 
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted 
