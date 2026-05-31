@@ -83,7 +83,7 @@
 
     - name: "Deploy docker-compose files"
       ansible.builtin.template:
-        src: "./components/{{ item.src }}/{{ item.file }}.j2"
+        src: "{{ item.file }}.j2"
         dest: "{{ project_root }}/components/{{ item.src }}/docker-compose.yml"
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
@@ -149,4 +149,4 @@
     - name: Restart Nginx
       ansible.builtin.systemd:
         name: nginx
-        state: restarted 
+        state: restarted
