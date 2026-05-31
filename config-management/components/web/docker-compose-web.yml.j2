@@ -1,19 +1,10 @@
-
 services:
   web:
     image: nginx:stable-alpine
     container_name: nginx-web
     restart: unless-stopped
+    # 【修正】nginx ユーザーから root ユーザーに強制変更して権限問題を回避
     user: "0:0"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     ports:
       - "8080:80"
     volumes:
@@ -21,6 +12,8 @@ services:
       - ./html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
+    # 【追加】Nginxキャッシュディレクトリをコンテナ内の書き込み可能領域に指定する
+    command: [nginx, -g, "daemon off; client_body_temp_path /tmp/client_temp; proxy_temp_path /tmp/proxy_temp; fastcgi_temp_path /tmp/fastcgi_temp; uwsgi_temp_path /tmp/uwsgi_temp; scgi_temp_path /tmp/scgi_temp;"]
 
 networks:
   frontend-nw:
