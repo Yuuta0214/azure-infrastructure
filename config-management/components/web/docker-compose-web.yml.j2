@@ -22,9 +22,9 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # 相対パスではなく、webディレクトリの中にあるファイルを正しく指定します
-      - ./web/nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./web/html:/usr/share/nginx/html:ro
+      # ./web/ に配置したファイルを正しくマウントする
+      - ./nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
 
