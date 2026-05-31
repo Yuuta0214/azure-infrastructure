@@ -22,9 +22,9 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # マウントパスが /etc/nginx/conf.d/default.conf であることを確認
-      - ./nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./html:/usr/share/nginx/html:ro
+      # 相対パスではなく、webディレクトリの中にあるファイルを正しく指定します
+      - ./web/nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web/html:/usr/share/nginx/html:ro
     networks:
       - frontend-nw
 

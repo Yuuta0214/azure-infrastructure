@@ -114,9 +114,8 @@
     # ------------------------------------------
     - name: "Start Docker containers"
       ansible.builtin.shell: |
-        docker compose -f {{ project_root }}/components/{{ item }}/docker-compose.yml -p myapp down --remove-orphans || true
-        docker compose -f {{ project_root }}/components/{{ item }}/docker-compose.yml -p myapp up -d
-      loop: [db, app, web]
+        cd {{ project_root }}/components && \
+        docker compose -f db/docker-compose.yml -f app/docker-compose.yml -f web/docker-compose.yml -p myapp up -d --remove-orphans
 
     - name: "Wait for web service to be responsive"
       ansible.builtin.uri:
