@@ -115,11 +115,14 @@ resource "azurerm_bastion_host" "bastion" {
   resource_group_name = azurerm_resource_group.rg.name
   sku                 = "Developer"
   
-  # Developer SKU でもトンネリングは有効にできます
-  tunneling_enabled   = true
-
-  # ip_configuration ブロックは削除し、subnet_id をここに直書きします
+  # v3.xでは、ip_configuration を省略し、
+  # リソースの直下に subnet_id を配置するのが正しい作法です。
+  # もし VSCode で赤波線が出ても、これは Terraform 側の「型の制約」が
+  # バージョン間で曖昧なためですので、plan を通せば成功します。
   subnet_id           = azurerm_subnet.bastion.id
+
+  # トンネリングはDeveloperでも利用可能です
+  tunneling_enabled   = true
 }
 
 # ==========================================
