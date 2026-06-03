@@ -107,8 +107,6 @@ resource "azurerm_lb_nat_rule" "lb_nat_ssh" {
 # ==========================================
 # 8. Azure Bastion の作成
 # ==========================================
-
-
 resource "azurerm_bastion_host" "bastion" {
   name                = "bastion-${local.resource_prefix}"
   location            = azurerm_resource_group.rg.location
