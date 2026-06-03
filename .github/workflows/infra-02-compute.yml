@@ -17,11 +17,13 @@ jobs:
   terraform-plan-compute:
     name: '5. Plan & Check (02_compute)'
     runs-on: ubuntu-latest
+    # Terraform実行に必要なAzure認証情報を環境変数としてセット
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
+      # 02_compute層で必要な変数を環境変数としてセット（例: 管理者ユーザー名、パスワード、SSH公開鍵など）
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
@@ -30,9 +32,11 @@ jobs:
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
     steps:
+      # コードのチェックアウト - GitHub Actionsのワークスペースにリポジトリコードを取得
       - name: 5-1, Checkout Code
         uses: actions/checkout@v4
 
+      # Azure Login (OIDC) - GitHub ActionsのOIDCトークンを使用してAzureにログイン
       - name: 5-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -40,11 +44,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Terraform(ver 1.7.0) install Setup
       - name: 5-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.7.0"
 
+      # Terraform Init - Terraform実行前の初期化
       - name: 5-4, Terraform Init
         run: |
           terraform init \
@@ -52,10 +58,12 @@ jobs:
             -backend-config="key=compute.tfstate"
         working-directory: ./infrastructure/02_compute
 
+      # Terraform Plan - 変更内容を確認するためのプランニング。tfvarsファイルとプロジェクト名を変数として渡す。
       - name: 5-5, Terraform Plan
         run: terraform plan -var-file="env-${{ env.TARGET_ENV }}.tfvars" -out=tfplan-compute
         working-directory: ./infrastructure/02_compute
 
+      # 2回目以降の冪等性を守るため、プラン結果(5-5)を一時保存
       - name: 5-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,11 +78,13 @@ jobs:
     needs: terraform-plan-compute
     environment: 'production' 
     runs-on: ubuntu-latest
+    # Terraform実行に必要なAzure認証情報を環境変数としてセット
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_USE_OIDC: true
+      # 02_compute層で必要な変数を環境変数としてセット（例: 管理者ユーザー名、パスワード、SSH公開鍵など）
       TARGET_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
       TF_VAR_admin_username: ${{ secrets.TF_VAR_ADMIN_USERNAME }}
       TF_VAR_admin_password: ${{ secrets.TF_VAR_ADMIN_PASSWORD }}
@@ -83,12 +93,15 @@ jobs:
       TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     steps:
+      # コードのチェックアウト - GitHub Actionsのワークスペースにリポジトリコードを取得
       - name: 6-1, Checkout Code
         uses: actions/checkout@v4
       
+      # Azure CLIのキャッシュをクリアして、クリーンな状態でAzure Loginを行う
       - name: 6-2, Clear Azure CLI cache
         run: az account clear
 
+      # Azure Login (OIDC) - GitHub ActionsのOIDCトークンを使用してAzureにログイン
       - name: 6-3, Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -96,9 +109,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Azure CLIでアクティブなサブスクリプションを設定
       - name: 6-4, Set Active Subscription
         run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Azure CLIで現在のセッション情報をデバッグ出力（サブスクリプションIDやアカウント情報など）
       - name: 6-5, Debug Azure Session
         run: |
           echo "Active Account Info:"
@@ -106,17 +121,20 @@ jobs:
           echo "Available Subscriptions:"
           az account list --output table
 
-      - name: 6-56, Download Plan Artifact
+      # 2回目以降の冪等性を守るため、5-6で保存したプラン結果をダウンロードして復元
+      - name: 6-6, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-compute-artifacts
           path: ./infrastructure/02_compute
 
+      # Terraform(ver 1.7.0) install Setup
       - name: 6-7, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
+      # Terraform Init - Terraform実行前の初期化
       - name: 6-8, Terraform Init
         run: |
           terraform init \
@@ -124,6 +142,7 @@ jobs:
             -backend-config="key=compute.tfstate"
         working-directory: ./infrastructure/02_compute
 
+      # Terraform Apply - 6-6でダウンロードしたプランを適用してインフラをデプロイ
       - name: 6-9, Terraform Apply
         run: terraform apply -auto-approve tfplan-compute
         working-directory: ./infrastructure/02_compute

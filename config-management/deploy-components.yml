@@ -10,51 +10,107 @@
   tasks:
     # ------------------------------------------
     # 1. VM基盤およびミドルウェア構築
+    # VMにインストールする必要パッケージと設定を記載する項目
     # ------------------------------------------
+    #1-1 必要パッケージインストール
     - name: "Update and install base system packages"
       ansible.builtin.apt:
         name: [chrony, locales, nginx, libmodsecurity3, libnginx-mod-http-modsecurity, modsecurity-crs, certbot, python3-certbot-nginx]
         state: present
         update_cache: yes
 
+    # 1-2 VMのタイムゾーン設定（Asia/Tokyo）
     - name: "Set Timezone"
       community.general.timezone:
         name: Asia/Tokyo
 
+    # 1-3 ロケール設定（ja_JP.UTF-8）
     - name: "Set Locale"
       community.general.locale_gen:
         name: ja_JP.UTF-8
         state: present
 
+    # 1-4 chronyの設定（NTPサーバー設定）
     - name: "Wait for infrastructure bootstrap"
       ansible.builtin.wait_for: { path: /var/tmp/bootstrap_complete, timeout: 600 }
       become: no
       
     # ------------------------------------------
-    # 2. Docker 環境構築
+    # 2. ホスト Nginx 設定
     # ------------------------------------------
+    # 2-1 ホストVMへのnginx設定ファイルの配置
+    - name: "Configure Host Nginx"
+      ansible.builtin.template:
+        src: "nginx-host.conf.j2" # ローカルPCのファイル格納パスおよびファイル名
+        dest: "/etc/nginx/sites-available/default" # VM上にファイル配置パスおよびファイル名
+      notify: Restart Nginx
+
+    # 2-2 ホストVMのnginx設定ファイルを有効化（sites-enabledへのシンボリックリンク作成）
+    - name: "Enable host Nginx configuration"
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/default" # 2-1 で事前にVM上に配置した「nginx-host.conf.j2」ファイル
+        dest: "/etc/nginx/sites-enabled/default"
+        state: link
+    
+    # ------------------------------------------
+    # 3. ホスト ModSecurity 設定
+    # ------------------------------------------
+    # 3-1 ModSecurityルールファイル配置用ディレクトリの作成
+    - name: "Ensure ModSecurity directory exists"
+      ansible.builtin.file:
+        path: "/etc/nginx/modsec"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # 3-2 ModSecurity ルールファイルの配置
+    - name: "Deploy ModSecurity rules"
+      ansible.builtin.copy:
+        src: "modsecurity-rules.conf"
+        dest: "/etc/nginx/modsec/modsecurity-rules.conf"
+        owner: root
+        group: root
+        mode: '0644'
+
+    # ------------------------------------------
+    # 4. Docker 環境構築
+    # ------------------------------------------
+    # 4-1 Docker公式GPGキーの取得と保存
     - name: "Add Docker's official GPG key"
       ansible.builtin.get_url:
         url: "https://download.docker.com/linux/debian/gpg"
         dest: "/etc/apt/keyrings/docker.asc"
         mode: '0644'
 
+    # 4-2 Dockerリポジトリの追加
     - name: "Add Docker repository"
       ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+        # 修正箇所: ansibe_facts を使用
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_facts['distribution_release'] }} stable"
         state: present
+        update_cache: yes  # ついでにここで最新パッケージ情報を取得しておくと効率的です
 
+    # 4-3 Docker EngineとCompose pluginのインストール
     - name: "Install Docker Engine and Compose plugin"
       ansible.builtin.apt:
         name: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
         state: present
 
+    # 4-4 Dockerモジュール操作のためのpythonインストール
+    - name: "Install Python Docker module"
+      ansible.builtin.pip:
+        name: docker
+        state: present
+
+    # 4-5 Dockerサービスの起動と有効化
     - name: "Ensure Docker service is started"
       ansible.builtin.systemd: { name: docker, state: started, enabled: yes }
       
     # ------------------------------------------
-    # 3. ネットワーク先行構築
+    # 5. Dockerネットワーク先行構築
     # ------------------------------------------
+    # 5-1 Dockerネットワークの作成（Frontend&Backend）
     - name: "Ensure shared docker networks exist"
       community.docker.docker_network:
         name: "{{ item }}"
@@ -62,8 +118,9 @@
       loop: [frontend-nw, backend-nw]
 
     # ------------------------------------------
-    # 4. アプリケーション層 (Docker構成配置)
+    # 6. Docker共通構成配置準備と配置
     # ------------------------------------------
+    # 6-1 各コンテナごとのディレクトリの作成とファイル配置
     - name: "Create component directories"
       ansible.builtin.file:
         path: "{{ project_root }}/components/{{ item }}"
@@ -73,18 +130,11 @@
         mode: '0755'
       loop: [db, app, web]
 
-    - name: "Copy web static assets"
-      ansible.builtin.copy:
-        src: "./html"
-        dest: "{{ project_root }}/components/web/"
-        owner: "{{ admin_user }}"
-        group: "{{ admin_user }}"
-        mode: '0755'
-
+    # 6-2 各docker-compose-xxx.ymlファイルを配置 
     - name: "Deploy docker-compose files"
       ansible.builtin.template:
-        src: "components/{{ item.src }}/{{ item.file }}.j2"
-        dest: "{{ project_root }}/components/{{ item.src }}/docker-compose.yml"
+        src: "components/{{ item.src }}/{{ item.file }}.j2" # ローカルPC上の「docker-compose-xxx.yml」ファイル格納パスおよびファイル名
+        dest: "{{ project_root }}/components/{{ item.src }}/docker-compose.yml" # VM上の「docker-compose-xxx.yml」ファイル配置パスおよびファイル名
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
@@ -93,14 +143,31 @@
         - { src: "app", file: "docker-compose-app.yml" }
         - { src: "web", file: "docker-compose-web.yml" }
 
+    # ------------------------------------------
+    # 7. アプリケーション層(webコンテナ)
+    # ------------------------------------------
+    # 7-1 Webコンテナのhtml設定ファイルの配置
+    - name: "Copy web static assets"
+      ansible.builtin.copy:
+        src: "html" # ローカルPCのファイル格納パスおよびファイル名
+        dest: "{{ project_root }}/components/web/" # VM上にファイル配置パスおよびファイル名
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0755'
+
+    # 7-2 WebコンテナのNginx設定ファイルの配置
     - name: "Deploy nginx-container.conf"
       ansible.builtin.copy:
-        src: "nginx-container.conf"
-        dest: "{{ project_root }}/components/web/nginx-container.conf"
+        src: "nginx-container.conf" # ローカルPCのファイル格納パスおよびファイル名
+        dest: "{{ project_root }}/components/web/" #VM上にファイル配置パスおよびファイル名
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
         mode: '0644'
-
+    
+    # ------------------------------------------
+    # 8. アプリケーション層（Appコンテナ）
+    # ------------------------------------------
+    # 8-1 Appコンテナのテスト用インデックスファイルの配置
     - name: "Create a test index for App container"
       ansible.builtin.copy:
         content: "Hello from Python App API"
@@ -110,13 +177,15 @@
         mode: '0644'
 
     # ------------------------------------------
-    # 5. コンテナ起動 (修正案)
+    # 9. コンテナ起動
     # ------------------------------------------
+    # 9-1 Docker composeを使用してコンテナ起動
     - name: "Start Docker containers"
       ansible.builtin.shell: |
         cd {{ project_root }}/components && \
         docker compose -f db/docker-compose.yml -f app/docker-compose.yml -f web/docker-compose.yml -p myapp up -d --remove-orphans
 
+    # 9-2 コンテナ起動後のサービス応答確認
     - name: "Wait for web service to be responsive"
       ansible.builtin.uri:
         url: "http://127.0.0.1:8080"
@@ -125,28 +194,15 @@
       until: result.status == 200
       retries: 5
       delay: 5
-
-    # ------------------------------------------
-    # 6. ホスト Nginx 設定 (修正案)
-    # ------------------------------------------
-    - name: "Configure Host Nginx"
-      ansible.builtin.template:
-        src: "./nginx-host.conf.j2"
-        dest: "/etc/nginx/sites-available/default"
-      notify: Restart Nginx
-
-    - name: "Enable host Nginx configuration"
-      ansible.builtin.file:
-        src: "/etc/nginx/sites-available/default"
-        dest: "/etc/nginx/sites-enabled/default"
-        state: link
-
+    
+    # 9-3 Nginx設定の最終確認
     - name: "Finalize Nginx"
       ansible.builtin.command: nginx -t
       changed_when: false
 
+  # Nginxプロセスを再起動するハンドラー
   handlers:
     - name: Restart Nginx
-      ansible.builtin.systemd:
+      ansible.builtin.service:
         name: nginx
         state: restarted

@@ -1,18 +1,36 @@
 services:
   web:
-    image: nginx:stable-alpine
-    container_name: nginx-web
-    restart: unless-stopped
-    user: "0:0"
+    image: nginx:stable-alpine # 軽量なAlpineベースのNginxイメージを使用
+    container_name: nginx-web # コンテナ名を指定
+    restart: unless-stopped # コンテナが停止した場合に自動的に再起動
+    user: "0:0" # コンテナ内のプロセスをrootユーザーで実行（必要に応じて変更）
+    # デプロイメント設定とリソース制限を追加
+    deploy:
+      resources:
+        limits:
+          memory: 256M  # Nginxは軽量なので256MBあれば十分です
+    # ログドライバーとオプションを設定して、ログ管理を行う
+    logging:
+      driver: "json-file" # ログドライバーをjson-fileに設定
+      options:
+        max-size: "10m" # ログファイルの最大サイズを10MBに設定
+        max-file: "3" # ログファイルの最大数を3に設定
+    # ホストの8080ポートをコンテナの80ポートにマッピング
     ports:
-      - "8080:80"
+      - "8080:80" 
+    #1 ホストのnginx-container.confとhtmlディレクトリをコンテナ内にマウント
+    #2 ホストのhtmlディレクトリをコンテナ内のNginxのドキュメントルートにマウント（読み取り専用）
     volumes:
-      - ./nginx-container.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./html:/usr/share/nginx/html:ro
-    networks:
+      - ./web/nginx-container.conf:/etc/nginx/conf.d/default.conf:ro #1
+      - ./web/html:/usr/share/nginx/html:ro #2
+    # Docker NWの「frontend-nw」接続（参加）
+    networks: 
       - frontend-nw
-    entrypoint: ["nginx", "-g", "daemon off;"]
+    command: ["nginx", "-g", "daemon off;"] # Nginxをフォアグラウンドで実行するためのコマンド
 
-networks:
-  frontend-nw:
+# ========================================== 
+# ネットワーク定義                            
+# ========================================== 
+networks: # Docker NWの「frontend-nw」接続（参加）
+  frontend-nw: # Webコンテナ側で作成される外部ネットワークへの相乗り
     external: true

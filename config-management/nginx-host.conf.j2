@@ -1,22 +1,23 @@
 server {
-    listen 80;
-    server_name _;
+    listen 80; # VMホストがport 80で外部からのリクエストを受け付ける設定
+    server_name _; # 任意のホスト名を受け入れる設定
 
-    modsecurity on;
+    # ModSecurityを有効化
+    modsecurity on; 
+    # ModSecurityのルールファイルのパス
     modsecurity_rules_file /etc/nginx/modsec/modsecurity-rules.conf;
 
-    # すべてのアクセスをWebコンテナ（例: ポート8080）へ転送
+    # すべてのアクセスをWebコンテナの静的へ転送
     location / {
+        # リクエストをWebコンテナのポート8080へ転送
         proxy_pass http://127.0.0.1:8080;
+        # 追加のヘッダー設定（必要に応じて）
         proxy_set_header Host $host;
+        # クライアントのIPアドレスをWebコンテナに伝えるためのヘッダー設定
         proxy_set_header X-Real-IP $remote_addr;
+        # クライアントのIPアドレスをWebコンテナに伝えるためのヘッダー設定（複数のプロキシがある場合に備えて）
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # クライアントのプロトコル（HTTP/HTTPS）をWebコンテナに伝えるためのヘッダー設定
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # APIへのアクセスもコンテナへ転送（コンテナ側で8000番で受ける場合）
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080/api/; # 8000ではなくコンテナの公開ポートへ
-        proxy_set_header Host $host;
     }
 }

@@ -4,13 +4,21 @@ services:
   {# 1. DB層: MySQL (データの永続化と隔離)      -#}
   {# ------------------------------------------ -#}
   db:
-    image: mysql:8.0
-    container_name: mysql-db
-    restart: unless-stopped
+    image: mysql:8.0 # MySQL 8.0の公式イメージを使用
+    container_name: mysql-db # コンテナ名を「mysql-db」に設定
+    restart: unless-stopped # コンテナが停止した場合に自動的に再起動する設定
+    # ユーザーとグループを指定して、コンテナ内のファイルアクセスをホストユーザーに合わせる
     deploy:
       resources:
         limits:
           memory: 1G
+    # ログドライバーとオプションを設定して、ログ管理を行う
+    logging:
+      driver: "json-file" # ログドライバーをjson-fileに設定
+      options: 
+        max-size: "10m" # ログファイルの最大サイズを10MBに設定
+        max-file: "3" # ログファイルの最大数を3に設定
+    # 環境変数を設定して、MySQLの初期設定を行う
     environment:
       MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
       MYSQL_DATABASE: "{{ mysql_db_name }}"
@@ -19,6 +27,7 @@ services:
     # ホスト側の db_data ボリュームを MySQL のデータ保存先にマウント
     volumes:
       - db_data:/var/lib/mysql
+    # Docker NWの「backend-nw」接続（参加）
     networks:
       - backend-nw
     # DB起動完了を正確に判定するためのヘルスチェック
@@ -29,15 +38,15 @@ services:
       retries: 10
       start_period: 45s
 
-{# ========================================== -#}
-{# ネットワーク定義                           -#}
-{# ========================================== -#}
+# ========================================== 
+# ネットワーク定義                            
+# ========================================== 
 networks:
   backend-nw:
     external: true
 
-{# ========================================== -#}
-{# ボリューム定義 (データの永続化)            -#}
-{# ========================================== -#}
+# ========================================== 
+# ボリューム定義 (データの永続化)            
+# ========================================== 
 volumes:
   db_data:

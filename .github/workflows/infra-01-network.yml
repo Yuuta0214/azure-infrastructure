@@ -22,8 +22,8 @@ jobs:
   # =============================================================
   terraform-plan-network:
     name: '3. Plan & Check (01_network)'
-    # backendジョブを分離したため、needs（依存関係）を削除済み
     runs-on: ubuntu-latest
+    # Terraform実行に必要なAzure認証情報を環境変数としてセット
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -32,9 +32,11 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
+      # コードのチェックアウト - GitHub Actionsのワークスペースにリポジトリコードを取得
       - name: 3-1, Checkout Code
         uses: actions/checkout@v4
 
+      # Azure Login (OIDC) - GitHub ActionsのOIDCトークンを使用してAzureにログイン
       - name: 3-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -42,25 +44,29 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Terraform(ver 1.7.0) install Setup
       - name: 3-3, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
+      # Terraform Init - Terraform実行前の初期化
       - name: 3-4, Terraform Init
         id: init
+        working-directory: ./infrastructure/01_network
         run: |
           terraform init \
             -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=network.tfstate"
-        working-directory: ./infrastructure/01_network
-
+       
+      # Terraform Plan - 変更内容を確認するためのプランニング。tfvarsファイルとプロジェクト名を変数として渡す。
       - name: 3-5, Terraform Plan
         id: plan
+        working-directory: ./infrastructure/01_network
         # セキュリティと整合性のため、shared/config/env の共通変数ファイルを参照します
         run: terraform plan -var-file="../../shared/config/env/${{ env.TARGET_ENV }}.tfvars" -out=tfplan
-        working-directory: ./infrastructure/01_network
-
+        
+      # 2回目以降の冪等性を守るため、プラン結果(3-5)を一時保存
       - name: 3-6, Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -75,6 +81,7 @@ jobs:
     needs: terraform-plan-network
     environment: 'production'
     runs-on: ubuntu-latest
+    # Terraform実行に必要なAzure認証情報を環境変数としてセット
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -83,9 +90,11 @@ jobs:
       ARM_USE_OIDC: true
 
     steps:
+      # コードのチェックアウト - GitHub Actionsのワークスペースにリポジトリコードを取得
       - name: 4-1, Checkout Code
         uses: actions/checkout@v4
 
+      # Azure Login (OIDC) - GitHub ActionsのOIDCトークンを使用してAzureにログイン
       - name: 4-2, Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -93,24 +102,29 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # 2回目以降の冪等性を守るため、3-6で保存したプラン結果をダウンロードして復元
       - name: 4-3, Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-network-artifacts
           path: ./infrastructure/01_network
 
+      # Terraform(ver 1.7.0) install Setup
       - name: 4-4, Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
+      # Terraform Init - Terraform実行前の初期化
       - name: 4-5, Terraform Init
+        working-directory: ./infrastructure/01_network
         run: |
           terraform init \
             -backend-config=../../shared/config/backend/${{ env.TARGET_ENV }}.backend.hcl \
             -backend-config="key=network.tfstate"
-        working-directory: ./infrastructure/01_network
-
+       
+      # Terraform Apply - 2-3でダウンロードしたプランを適用してインフラをデプロイ
       - name: 4-6, Terraform Apply
-        run: terraform apply -auto-approve tfplan
         working-directory: ./infrastructure/01_network
+        run: terraform apply -auto-approve tfplan
+        

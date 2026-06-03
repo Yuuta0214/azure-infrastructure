@@ -4,39 +4,44 @@ services:
 # 2. App層: Backend Application (ビジネスロジック) 
 # ------------------------------------------ 
   app:
-    image: python:3.11-slim
-    container_name: python-app
-    restart: unless-stopped
-    user: "1000:1000"
+    image: python:3.11-slim # 軽量なPythonイメージを使用
+    container_name: python-app # コンテナ名を「python-app」に設定
+    restart: unless-stopped # コンテナが停止した場合に自動的に再起動する設定
+    user: "1000:1000" # ホストのユーザーIDとグループIDを指定して、コンテナ内のファイルアクセスをホストユーザーに合わせる
+    depends_on: # dbコンテナへの依存関係を定義
+      db: # dbサービスに依存
+        condition: service_healthy # dbコンテナのヘルスチェック合格を待つ
+    # デプロイメント設定とリソース制限を追加
     deploy:
-      resources:
+      resources: # 
         limits:
-          memory: 512M
+          memory: 512M # メモリ使用量の上限を512MBに設定
+    # ログドライバーとオプションを設定して、ログ管理を行う
     logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      driver: "json-file" # ログドライバーをjson-fileに設定
+      options: 
+        max-size: "10m" # ログファイルの最大サイズを10MBに設定
+        max-file: "3" # ログファイルの最大数を3に設定
+    # 環境変数を設定して、DB接続情報をアプリケーションに提供
     environment:
-      DB_HOST: mysql-db
-      DB_NAME: "{{ mysql_db_name }}"
-      DB_USER: "{{ mysql_user }}"
-      DB_PASS: "{{ mysql_password }}"
+      DB_HOST: mysql-db # DBホスト名を設定
+      DB_NAME: "{{ mysql_db_name }}" # DB名を設定
+      DB_USER: "{{ mysql_user }}" # DBユーザー名を設定
+      DB_PASS: "{{ mysql_password }}" # DBパスワードを設定
+    # ボリュームマウントと作業ディレクトリを設定して、アプリケーションコードをコンテナ内で利用可能にする
     volumes:
-      - ./app:/app
-    working_dir: /app
-    command: python3 -m http.server 8000
-    networks:
+      - ./app:/app  # ホストのappディレクトリをコンテナ内の/appにマウント
+    working_dir: /app # コンテナ内の作業ディレクトリを/appに設定
+    command: python3 -m http.server 8000 # アプリケーションを起動するコマンドを指定
+    networks: # Docker NWの「frontend-nw」と「backend-nw」接続（参加）
       - frontend-nw
       - backend-nw
 
 # ========================================== 
 # ネットワーク定義                            
 # ========================================== 
-networks:
-# Webコンテナ側で作成される外部ネットワークへの相乗り 
-  frontend-nw:
+networks: # Docker NWの「frontend-nw」と「backend-nw」接続（参加）
+  frontend-nw: # Webコンテナ側で作成される外部ネットワークへの相乗り
     external: true
-# DBコンテナ側で作成される内部ネットワークへの相乗り 
-  backend-nw:
+  backend-nw: # DBコンテナ側で作成される内部ネットワークへの相乗り 
     external: true
