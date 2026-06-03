@@ -7,7 +7,7 @@ environment  = "prod"
 # ==========================================
 # 2. コンピューティング定義 (VMスペック)
 # ==========================================
-vm_size      = "Standard_D2s_v3"
+vm_size      = "Standard_D2as_v4"
 lb_backend_pool_name = "BackendPool-web-prod"
 
 # ==========================================
